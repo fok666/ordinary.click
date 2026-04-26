@@ -75,6 +75,9 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   # --- Images: long cache, no query strings --------------------------------
+  # Public URL prefix is /images/* but the S3 bucket lays files out under
+  # categories/<category>/<file>. A viewer-request CloudFront Function
+  # rewrites /images/... -> /categories/... before the S3 lookup.
   ordered_cache_behavior {
     path_pattern           = "/images/*"
     target_origin_id       = "s3-images"
@@ -85,6 +88,11 @@ resource "aws_cloudfront_distribution" "site" {
 
     cache_policy_id            = local.cache_policy_optimized
     response_headers_policy_id = local.response_headers_security
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.images_rewrite.arn
+    }
   }
 
   # --- API: short cache, forward query strings -----------------------------
@@ -128,6 +136,24 @@ resource "aws_cloudfront_distribution" "site" {
     response_page_path    = "/index.html"
     error_caching_min_ttl = 10
   }
+}
+
+# Rewrites /images/<...> to /categories/<...> at the edge so the public URL
+# space stays clean while the bucket layout uses categories/ as the prefix.
+resource "aws_cloudfront_function" "images_rewrite" {
+  name    = "${local.project}-images-rewrite"
+  runtime = "cloudfront-js-2.0"
+  comment = "Rewrite /images/* to /categories/* for the s3-images origin"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var req = event.request;
+      if (req.uri.indexOf("/images/") === 0) {
+        req.uri = "/categories/" + req.uri.substring("/images/".length);
+      }
+      return req;
+    }
+  EOT
 }
 
 resource "aws_cloudfront_cache_policy" "api" {
