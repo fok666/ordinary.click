@@ -171,6 +171,14 @@ def _list_category(name: str) -> dict | None:
                 "size": obj["Size"],
             })
 
+    if not images:
+        # Also check originals/ — images may have been uploaded but the
+        # processor hasn't created the display derivatives yet.
+        for page in paginator.paginate(Bucket=BUCKET, Prefix=f"{ORIGINALS_PREFIX}{name}/", Delimiter="/", PaginationConfig={"MaxItems": 1}):
+            if page.get("Contents"):
+                return {"name": name, "images": []}
+        return None
+
     images.sort(key=lambda i: i["filename"])
     return {"name": name, "images": images}
 
