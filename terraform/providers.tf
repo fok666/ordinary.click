@@ -1,15 +1,14 @@
+# CloudFront, ACM for CloudFront, and Lambda@Edge all live in us-east-1.
 provider "aws" {
-  region = var.aws_region
+  alias  = "us_east_1"
+  region = "us-east-1"
 
   default_tags {
     tags = local.common_tags
   }
 }
-
-# CloudFront, ACM for CloudFront, and Lambda@Edge all live in us-east-1.
 provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
+  region = var.aws_region
 
   default_tags {
     tags = local.common_tags
