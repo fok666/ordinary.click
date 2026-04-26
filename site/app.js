@@ -391,7 +391,6 @@ async function uploadFiles(category, files, logEl) {
 
       const form = new FormData();
       for (const [k, v] of Object.entries(presign.fields)) form.append(k, v);
-      form.append("Content-Type", file.type || "image/jpeg");
       form.append("file", file);
 
       li.textContent = `${filename}: uploading…`;
