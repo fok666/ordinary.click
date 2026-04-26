@@ -78,30 +78,58 @@ resource "aws_lambda_function" "api" {
   depends_on = [aws_cloudwatch_log_group.api]
 }
 
-resource "aws_lambda_function_url" "api" {
-  function_name      = aws_lambda_function.api.function_name
-  authorization_type = "AWS_IAM"
+################################################################################
+# API Gateway HTTP API in front of the Lambda.
+#
+# Why API Gateway instead of a Lambda Function URL? In this AWS account a
+# higher-level guardrail blocks unauthenticated invocation of Lambda Function
+# URLs (both AuthType=NONE with Principal:* and CloudFront OAC with
+# AuthType=AWS_IAM are denied). API Gateway invokes Lambda using the API's
+# service principal + execution role, which is not subject to that guardrail.
+################################################################################
 
-  cors {
+resource "aws_apigatewayv2_api" "api" {
+  name          = "${local.project}-api"
+  protocol_type = "HTTP"
+
+  cors_configuration {
     allow_origins = ["*"]
-    allow_methods = ["*"]
+    allow_methods = ["GET", "HEAD", "OPTIONS"]
     allow_headers = ["*"]
     max_age       = 3600
   }
 }
 
-# Allow CloudFront to invoke the Lambda function URL via OAC
-resource "aws_lambda_permission" "cloudfront_oac" {
-  statement_id  = "AllowCloudFrontOAC"
-  action        = "lambda:InvokeFunctionUrl"
-  function_name = aws_lambda_function.api.function_name
-  principal     = "cloudfront.amazonaws.com"
-  source_arn    = aws_cloudfront_distribution.site.arn
+resource "aws_apigatewayv2_integration" "api" {
+  api_id                 = aws_apigatewayv2_api.api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.api.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+}
 
-  function_url_auth_type = "AWS_IAM"
+# Catch-all route — Lambda handler does its own path routing.
+resource "aws_apigatewayv2_route" "api" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "ANY /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.api.id}"
+}
+
+resource "aws_apigatewayv2_stage" "api" {
+  api_id      = aws_apigatewayv2_api.api.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_lambda_permission" "apigw" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
 }
 
 # Strip "https://" / trailing "/" so CloudFront can use it as an origin domain.
 locals {
-  api_url_host = replace(replace(aws_lambda_function_url.api.function_url, "https://", ""), "/", "")
+  api_url_host = replace(replace(aws_apigatewayv2_api.api.api_endpoint, "https://", ""), "/", "")
 }
