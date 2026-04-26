@@ -1,0 +1,2 @@
+# boto3 / botocore are provided by the Lambda Python runtime, so no extra
+# dependencies are needed. Add packages here only if the handler imports them.
