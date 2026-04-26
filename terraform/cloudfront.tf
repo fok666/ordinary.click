@@ -2,7 +2,7 @@
 # CloudFront distribution — single entry point in front of:
 #   - S3 site bucket           (default)
 #   - S3 image bucket          (/images/*)
-#   - Lambda Function URL      (/api/*)
+#   - API Gateway HTTP API     (/api/*)
 ################################################################################
 
 resource "aws_cloudfront_origin_access_control" "site" {
@@ -21,21 +21,12 @@ resource "aws_cloudfront_origin_access_control" "images" {
   signing_protocol                  = "sigv4"
 }
 
-resource "aws_cloudfront_origin_access_control" "lambda_api" {
-  name                              = "${local.project}-lambda-api-oac"
-  description                       = "OAC for Lambda Function URL"
-  origin_access_control_origin_type = "lambda"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
 # Managed policy IDs
 # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html
 locals {
-  cache_policy_optimized         = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-  cache_policy_disabled          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-  origin_request_policy_all_view = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
-  response_headers_security      = "67f7725c-6f97-4210-82d7-5512b31e9d03" # SecurityHeadersPolicy
+  cache_policy_optimized            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+  origin_request_policy_all_no_host = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+  response_headers_security         = "67f7725c-6f97-4210-82d7-5512b31e9d03" # SecurityHeadersPolicy
 }
 
 resource "aws_cloudfront_distribution" "site" {
@@ -61,9 +52,8 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   origin {
-    origin_id                = "lambda-api"
-    domain_name              = local.api_url_host
-    origin_access_control_id = aws_cloudfront_origin_access_control.lambda_api.id
+    origin_id   = "lambda-api"
+    domain_name = local.api_url_host
 
     custom_origin_config {
       http_port              = 80
@@ -72,7 +62,6 @@ resource "aws_cloudfront_distribution" "site" {
       origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
-
   # --- Default behaviour: site ----------------------------------------------
   default_cache_behavior {
     target_origin_id       = "s3-site"
@@ -99,6 +88,8 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   # --- API: short cache, forward query strings -----------------------------
+  # Origin is API Gateway HTTP API. AllViewerExceptHostHeader forwards viewer
+  # headers but lets CloudFront set Host to the API Gateway hostname.
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     target_origin_id       = "lambda-api"
@@ -108,7 +99,7 @@ resource "aws_cloudfront_distribution" "site" {
     compress               = true
 
     cache_policy_id          = aws_cloudfront_cache_policy.api.id
-    origin_request_policy_id = local.origin_request_policy_all_view
+    origin_request_policy_id = local.origin_request_policy_all_no_host
   }
 
   viewer_certificate {
