@@ -21,6 +21,14 @@ resource "aws_cloudfront_origin_access_control" "images" {
   signing_protocol                  = "sigv4"
 }
 
+resource "aws_cloudfront_origin_access_control" "lambda_api" {
+  name                              = "${local.project}-lambda-api-oac"
+  description                       = "OAC for Lambda Function URL"
+  origin_access_control_origin_type = "lambda"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 # Managed policy IDs
 # https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html
 locals {
@@ -53,15 +61,9 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   origin {
-    origin_id   = "lambda-api"
-    domain_name = local.api_url_host
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
+    origin_id                = "lambda-api"
+    domain_name              = local.api_url_host
+    origin_access_control_id = aws_cloudfront_origin_access_control.lambda_api.id
   }
 
   # --- Default behaviour: site ----------------------------------------------
