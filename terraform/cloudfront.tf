@@ -95,19 +95,34 @@ resource "aws_cloudfront_distribution" "site" {
     }
   }
 
-  # --- API: short cache, forward query strings -----------------------------
+  # --- API: short cache, forward query strings + auth headers --------------
   # Origin is API Gateway HTTP API. AllViewerExceptHostHeader forwards viewer
-  # headers but lets CloudFront set Host to the API Gateway hostname.
+  # headers (including Authorization) but lets CloudFront set Host to the API
+  # Gateway hostname. POST/PUT/DELETE are required for admin endpoints.
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     target_origin_id       = "lambda-api"
     viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods         = ["GET", "HEAD"]
     compress               = true
 
     cache_policy_id          = aws_cloudfront_cache_policy.api.id
     origin_request_policy_id = local.origin_request_policy_all_no_host
+  }
+
+  # --- Thumbnails: long cache, served straight from the images bucket -------
+  # Bucket key is `thumbs/<category>/<file>` so no rewrite is needed.
+  ordered_cache_behavior {
+    path_pattern           = "/thumbs/*"
+    target_origin_id       = "s3-images"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    cache_policy_id            = local.cache_policy_optimized
+    response_headers_policy_id = local.response_headers_security
   }
 
   viewer_certificate {

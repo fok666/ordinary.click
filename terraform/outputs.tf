@@ -23,6 +23,21 @@ output "api_endpoint" {
   value       = aws_apigatewayv2_api.api.api_endpoint
 }
 
+output "cognito_user_pool_id" {
+  description = "Cognito user pool ID (use to create admin users via aws cognito-idp admin-create-user)."
+  value       = aws_cognito_user_pool.admins.id
+}
+
+output "cognito_client_id" {
+  description = "Cognito app client ID consumed by the SPA (also returned via /api/config)."
+  value       = aws_cognito_user_pool_client.site.id
+}
+
+output "cognito_hosted_ui_domain" {
+  description = "Cognito hosted UI domain (the SPA redirects here for login)."
+  value       = local.cognito_hosted_domain
+}
+
 output "github_deployer_role_arn" {
   description = "Role ARN used by GitHub Actions OIDC for deployments."
   value       = aws_iam_role.github_deployer.arn

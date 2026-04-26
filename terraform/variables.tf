@@ -46,6 +46,12 @@ variable "lambda_memory_mb" {
   default     = 256
 }
 
+variable "processor_memory_mb" {
+  description = "Memory for the image processor Lambda. Pillow benefits from more CPU; 1024 MB is a good cost/perf sweet spot."
+  type        = number
+  default     = 1024
+}
+
 variable "lambda_log_retention_days" {
   description = "CloudWatch log retention for the API Lambda."
   type        = number
