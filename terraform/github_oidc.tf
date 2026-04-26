@@ -92,7 +92,10 @@ data "aws_iam_policy_document" "github_deployer" {
       "lambda:GetFunction",
       "lambda:PublishVersion",
     ]
-    resources = [aws_lambda_function.api.arn]
+    resources = [
+      aws_lambda_function.api.arn,
+      aws_lambda_function.processor.arn,
+    ]
   }
 }
 

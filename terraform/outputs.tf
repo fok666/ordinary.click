@@ -18,9 +18,24 @@ output "cloudfront_domain_name" {
   value       = aws_cloudfront_distribution.site.domain_name
 }
 
-output "lambda_function_url" {
-  description = "Direct Function URL of the gallery API (CloudFront fronts it at /api/*)."
-  value       = aws_lambda_function_url.api.function_url
+output "api_endpoint" {
+  description = "Direct API Gateway endpoint of the gallery API (CloudFront fronts it at /api/*)."
+  value       = aws_apigatewayv2_api.api.api_endpoint
+}
+
+output "cognito_user_pool_id" {
+  description = "Cognito user pool ID (use to create admin users via aws cognito-idp admin-create-user)."
+  value       = aws_cognito_user_pool.admins.id
+}
+
+output "cognito_client_id" {
+  description = "Cognito app client ID consumed by the SPA (also returned via /api/config)."
+  value       = aws_cognito_user_pool_client.site.id
+}
+
+output "cognito_hosted_ui_domain" {
+  description = "Cognito hosted UI domain (the SPA redirects here for login)."
+  value       = local.cognito_hosted_domain
 }
 
 output "github_deployer_role_arn" {

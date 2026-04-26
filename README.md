@@ -15,20 +15,32 @@ Terraform; the site and API deploy from this repo.
             │ default                │ /images/*               │ /api/*
             ▼                        ▼                         ▼
    ┌────────────────┐       ┌────────────────┐       ┌────────────────────┐
-   │ S3: site (OAC) │       │ S3: images(OAC)│       │ Lambda Function URL │
-   │ index.html, JS │       │ photos by      │       │ Python 3.12 / arm64 │
-   └────────────────┘       │ category/      │       │ scales to zero      │
+   │ S3: site (OAC) │       │ S3: images(OAC)│       │ API Gateway HTTP   │
+   │ index.html, JS │       │ photos by      │       │  ↓ AWS_PROXY       │
+   └────────────────┘       │ category/      │       │ Lambda (py3.12,arm)│
                             └────────────────┘       └────────────────────┘
 ```
 
 * **Scale-to-zero**: nothing runs while idle. S3 charges per byte stored,
-  CloudFront per request, Lambda per invocation. No EC2, no NAT, no ALB.
-* **Fast**: HTML/CSS/JS and images are served from CloudFront edges.
-  The API is a single ARM64 Python Lambda fronted by CloudFront with a 60s
-  cache, so most requests never reach Lambda.
+  CloudFront per request, API Gateway + Lambda per invocation. No EC2, no
+  NAT, no ALB.
+* **Fast**: HTML/CSS/JS and images are served from CloudFront edges. The
+  API is a single ARM64 Python Lambda behind an API Gateway HTTP API, fronted
+  by CloudFront with a 60s cache, so most requests never reach Lambda.
 * **Self-contained**: the repo holds Terraform (`terraform/`), the API code
   (`lambda/api/`), the static site (`site/`), and a GitHub Actions workflow
   (`.github/workflows/deploy.yml`) that uses OIDC — no long-lived AWS keys.
+
+> **Why API Gateway and not a Lambda Function URL with CloudFront OAC?**
+> The textbook AWS pattern is CloudFront OAC → Lambda Function URL
+> (`AuthType=AWS_IAM`). In some AWS Organizations a guardrail blocks all
+> non-IAM-principal access to Lambda Function URLs (including the
+> `cloudfront.amazonaws.com` service principal used by OAC and unauthenticated
+> `Principal:"*"` on `AuthType=NONE`). When that's the case, every CloudFront
+> → Lambda URL request returns `403 AccessDeniedException` regardless of
+> resource-policy configuration. API Gateway HTTP API invokes Lambda via the
+> integration's IAM principal, which is not subject to that guardrail and
+> costs ~$1/M requests (1M/month free tier).
 
 ## Layout
 
@@ -59,16 +71,60 @@ After the first apply:
 
 ## Adding photos
 
-Upload images under the `categories/<category-name>/` prefix in the
-`ordinary-click-images` bucket. Filenames become the displayed images; the
-first object in a category is used as its cover.
+Two ways to upload:
+
+### From the website (recommended)
+
+1. Click **Sign in** in the top-right and authenticate via the Cognito hosted
+   UI. Sign-up is disabled — accounts are created by an administrator (you).
+   Create the first user once, after `terraform apply`:
+
+   ```bash
+   POOL_ID=$(terraform -chdir=terraform output -raw cognito_user_pool_id)
+   aws cognito-idp admin-create-user \
+     --user-pool-id "$POOL_ID" \
+     --username you@example.com \
+     --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true
+   ```
+
+   Cognito emails a temporary password; you'll be asked to change it on first
+   login.
+
+2. On the home page, an **Upload** form appears. Type a category name (new or
+   existing) and pick image files. Each upload is sent directly to S3 via a
+   presigned POST. The processor Lambda then produces a max-2048px display
+   image and a max-400px thumbnail; the original is kept untouched.
+
+3. On a category page, you can upload more images and click the trash icon on
+   any tile to delete it (original + display + thumb together).
+
+### From the CLI (legacy / bulk)
+
+Direct uploads under `categories/<name>/` still work for the read API but
+won't get a thumbnail or be down-scaled, so the gallery falls back to the
+display URL for the cover. To trigger processing, upload to the
+`originals/<name>/` prefix instead:
 
 ```bash
-aws s3 cp ./mountains/ "s3://ordinary-click-images/categories/mountains/" \
-  --recursive --content-type image/jpeg
+aws s3 cp ./mountains/ "s3://ordinary-click-images/originals/mountains/" \
+  --recursive
 ```
 
+S3 layout:
+
+| Prefix | Contents | Public path |
+| --- | --- | --- |
+| `originals/<cat>/<file>` | uploaded original (kept) | _private_ |
+| `categories/<cat>/<file>` | display image (≤ 2048 px long edge) | `/images/<cat>/<file>` |
+| `thumbs/<cat>/<file>` | thumbnail (≤ 400 px long edge) | `/thumbs/<cat>/<file>` |
+
 The API caches category listings for 60 seconds at the edge.
+
+## Click for full-size view
+
+The gallery view opens a lightbox when you click a thumbnail. Use the on-
+screen arrows or `←`/`→` to step through images, and `Esc` (or click the
+backdrop) to close.
 
 ## Cost notes
 

@@ -9,8 +9,13 @@
 </head>
 <body>
   <header>
-    <h1><a href="/">ordinary.click</a></h1>
-    <p class="tagline">A personal image gallery of unremarkable, ordinary moments.</p>
+    <div class="header-row">
+      <div>
+        <h1><a href="/">ordinary.click</a></h1>
+        <p class="tagline">A personal image gallery of unremarkable, ordinary moments.</p>
+      </div>
+      <nav id="auth-nav" class="auth-nav"></nav>
+    </div>
   </header>
 
   <main id="app">
@@ -18,6 +23,13 @@
       <p>Loading categories…</p>
     </section>
   </main>
+
+  <div id="lightbox" class="lightbox" hidden>
+    <button class="lightbox-close" aria-label="Close">×</button>
+    <button class="lightbox-prev" aria-label="Previous">‹</button>
+    <img alt="" />
+    <button class="lightbox-next" aria-label="Next">›</button>
+  </div>
 
   <footer>
     <small>© ordinary.click</small>

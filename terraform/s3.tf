@@ -96,6 +96,15 @@ resource "aws_s3_bucket_cors_configuration" "images" {
     allowed_headers = ["*"]
     max_age_seconds = 3600
   }
+
+  # Browser uploads via presigned POST land directly on S3.
+  cors_rule {
+    allowed_methods = ["POST"]
+    allowed_origins = [for h in local.all_aliases : "https://${h}"]
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag", "Location"]
+    max_age_seconds = 3600
+  }
 }
 
 ################################################################################
