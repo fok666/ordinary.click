@@ -18,9 +18,9 @@ output "cloudfront_domain_name" {
   value       = aws_cloudfront_distribution.site.domain_name
 }
 
-output "lambda_function_url" {
-  description = "Direct Function URL of the gallery API (CloudFront fronts it at /api/*)."
-  value       = aws_lambda_function_url.api.function_url
+output "api_endpoint" {
+  description = "Direct API Gateway endpoint of the gallery API (CloudFront fronts it at /api/*)."
+  value       = aws_apigatewayv2_api.api.api_endpoint
 }
 
 output "github_deployer_role_arn" {
