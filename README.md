@@ -15,20 +15,32 @@ Terraform; the site and API deploy from this repo.
             │ default                │ /images/*               │ /api/*
             ▼                        ▼                         ▼
    ┌────────────────┐       ┌────────────────┐       ┌────────────────────┐
-   │ S3: site (OAC) │       │ S3: images(OAC)│       │ Lambda Function URL │
-   │ index.html, JS │       │ photos by      │       │ Python 3.12 / arm64 │
-   └────────────────┘       │ category/      │       │ scales to zero      │
+   │ S3: site (OAC) │       │ S3: images(OAC)│       │ API Gateway HTTP   │
+   │ index.html, JS │       │ photos by      │       │  ↓ AWS_PROXY       │
+   └────────────────┘       │ category/      │       │ Lambda (py3.12,arm)│
                             └────────────────┘       └────────────────────┘
 ```
 
 * **Scale-to-zero**: nothing runs while idle. S3 charges per byte stored,
-  CloudFront per request, Lambda per invocation. No EC2, no NAT, no ALB.
-* **Fast**: HTML/CSS/JS and images are served from CloudFront edges.
-  The API is a single ARM64 Python Lambda fronted by CloudFront with a 60s
-  cache, so most requests never reach Lambda.
+  CloudFront per request, API Gateway + Lambda per invocation. No EC2, no
+  NAT, no ALB.
+* **Fast**: HTML/CSS/JS and images are served from CloudFront edges. The
+  API is a single ARM64 Python Lambda behind an API Gateway HTTP API, fronted
+  by CloudFront with a 60s cache, so most requests never reach Lambda.
 * **Self-contained**: the repo holds Terraform (`terraform/`), the API code
   (`lambda/api/`), the static site (`site/`), and a GitHub Actions workflow
   (`.github/workflows/deploy.yml`) that uses OIDC — no long-lived AWS keys.
+
+> **Why API Gateway and not a Lambda Function URL with CloudFront OAC?**
+> The textbook AWS pattern is CloudFront OAC → Lambda Function URL
+> (`AuthType=AWS_IAM`). In some AWS Organizations a guardrail blocks all
+> non-IAM-principal access to Lambda Function URLs (including the
+> `cloudfront.amazonaws.com` service principal used by OAC and unauthenticated
+> `Principal:"*"` on `AuthType=NONE`). When that's the case, every CloudFront
+> → Lambda URL request returns `403 AccessDeniedException` regardless of
+> resource-policy configuration. API Gateway HTTP API invokes Lambda via the
+> integration's IAM principal, which is not subject to that guardrail and
+> costs ~$1/M requests (1M/month free tier).
 
 ## Layout
 
