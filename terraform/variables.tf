@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "Primary AWS region for regional resources (S3, Lambda)."
   type        = string
-  default     = "eu-central-1"
+  default     = "eu-west-1"
 }
 
 variable "domain_name" {
@@ -19,13 +19,13 @@ variable "subject_alternative_names" {
 variable "create_route53_zone" {
   description = "If true, Terraform creates the public hosted zone. Set false if the zone already exists."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "github_repository" {
   description = "GitHub repo allowed to assume the deployer role, formatted as owner/repo."
   type        = string
-  default     = "kornfer/ordinary.click"
+  default     = "fok666/ordinary.click"
 }
 
 variable "github_deploy_branches" {
