@@ -80,14 +80,25 @@ resource "aws_lambda_function" "api" {
 
 resource "aws_lambda_function_url" "api" {
   function_name      = aws_lambda_function.api.function_name
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
 
   cors {
-    allow_origins = [for h in local.all_aliases : "https://${h}"]
-    allow_methods = ["GET"]
-    allow_headers = ["content-type"]
+    allow_origins = ["*"]
+    allow_methods = ["*"]
+    allow_headers = ["*"]
     max_age       = 3600
   }
+}
+
+# Allow CloudFront to invoke the Lambda function URL via OAC
+resource "aws_lambda_permission" "cloudfront_oac" {
+  statement_id  = "AllowCloudFrontOAC"
+  action        = "lambda:InvokeFunctionUrl"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "cloudfront.amazonaws.com"
+  source_arn    = aws_cloudfront_distribution.site.arn
+
+  function_url_auth_type = "AWS_IAM"
 }
 
 # Strip "https://" / trailing "/" so CloudFront can use it as an origin domain.
