@@ -265,3 +265,33 @@ footer { color: var(--muted); text-align: center; }
   background: var(--bg); color: var(--fg); font-size: .9rem;
 }
 .upload-meta-fields textarea { flex: 1 1 100%; resize: vertical; }
+
+/* --- Site navigation ----------------------------------------------------- */
+.site-nav {
+  display: flex; gap: .6rem; align-items: flex-end; margin-bottom: .15rem;
+}
+.site-nav a {
+  color: rgba(255,255,255,.7); text-decoration: none; font-size: .95rem;
+  padding: .2rem .5rem; border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.site-nav a:hover { color: #fff; background: rgba(255,255,255,.1); }
+
+/* --- Geo map ------------------------------------------------------------- */
+#geo-map {
+  width: 100%; height: 70vh; min-height: 400px;
+  border-radius: 8px; overflow: hidden;
+  margin-top: .5rem;
+  border: 1px solid var(--border);
+}
+@media (min-width: 800px) {
+  #geo-map { height: 75vh; }
+}
+
+.map-popup { display: flex; gap: .6rem; align-items: flex-start; }
+.map-popup-thumb img {
+  width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display: block;
+}
+.map-popup-info { font-size: .85rem; line-height: 1.4; max-width: 180px; }
+.map-popup-info strong { font-weight: 600; }
+.map-popup-desc { color: #666; font-size: .8rem; }

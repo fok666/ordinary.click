@@ -309,7 +309,11 @@ metaForm.addEventListener("submit", async (e) => {
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
-function render(html) { app.innerHTML = html; }
+function render(html) {
+  // Clean up map instance when leaving the map page.
+  if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+  app.innerHTML = html;
+}
 
 async function renderHome() {
   render(`<section id="intro"><p>Loading categories…</p></section>`);
@@ -510,10 +514,98 @@ async function uploadFiles(category, files, logEl, meta = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Map page — geo-tagged images on OpenStreetMap via Leaflet
+// ---------------------------------------------------------------------------
+let mapInstance = null;
+
+async function renderMap() {
+  render(`
+    <section>
+      <a class="back" href="#/">← all categories</a>
+      <h2>Geo-tagged photos</h2>
+    </section>
+    <div id="geo-map"></div>
+  `);
+
+  try {
+    const { images } = await fetchJSON("/api/geo");
+
+    if (!images.length) {
+      render(`
+        <section>
+          <a class="back" href="#/">← all categories</a>
+          <h2>Geo-tagged photos</h2>
+          <p>No geo-tagged images yet. Add coordinates to your photos to see them on the map.</p>
+        </section>
+      `);
+      return;
+    }
+
+    // Clean up previous map instance if route is revisited.
+    if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+
+    mapInstance = L.map("geo-map");
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(mapInstance);
+
+    const markers = L.markerClusterGroup
+      ? L.markerClusterGroup()
+      : L.layerGroup();
+
+    const bounds = [];
+
+    for (const img of images) {
+      const lat = Number(img.latitude);
+      const lng = Number(img.longitude);
+      if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
+
+      bounds.push([lat, lng]);
+
+      const popupHtml = `
+        <div class="map-popup">
+          <a href="#/c/${encodeURIComponent(img.category)}" class="map-popup-thumb">
+            <img src="${esc(img.thumb)}" alt="${esc(img.filename)}" loading="lazy" />
+          </a>
+          <div class="map-popup-info">
+            <strong>${esc(img.category)}</strong> / ${esc(img.filename)}
+            ${img.description ? `<br><span class="map-popup-desc">${esc(img.description)}</span>` : ""}
+          </div>
+        </div>
+      `;
+
+      const marker = L.marker([lat, lng]).bindPopup(popupHtml, { maxWidth: 280, minWidth: 160 });
+      markers.addLayer(marker);
+    }
+
+    mapInstance.addLayer(markers);
+
+    if (bounds.length === 1) {
+      mapInstance.setView(bounds[0], 14);
+    } else if (bounds.length > 1) {
+      mapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    } else {
+      mapInstance.setView([20, 0], 2);
+    }
+
+  } catch (err) {
+    render(`
+      <section>
+        <a class="back" href="#/">← all categories</a>
+        <p>Couldn't load geo-tagged images: ${esc(err.message)}</p>
+      </section>
+    `);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 function route() {
   const hash = location.hash.replace(/^#/, "") || "/";
+  if (hash === "/map") return renderMap();
   const m = hash.match(/^\/c\/(.+)$/);
   if (m) return renderCategory(decodeURIComponent(m[1]));
   return renderHome();

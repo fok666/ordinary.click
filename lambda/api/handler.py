@@ -6,6 +6,7 @@ Public endpoints (cached at CloudFront):
     GET    /api/config                              -> Cognito client config for the SPA
     GET    /api/categories                          -> { "categories": [...] }
     GET    /api/categories/<name>                   -> { "name": "...", "images": [...] }
+    GET    /api/geo                                 -> { "images": [...] }  (all geo-tagged)
 
 Admin endpoints (require a valid Cognito JWT — enforced by API Gateway):
 
@@ -282,6 +283,36 @@ def _list_category(name: str) -> dict | None:
     return {"name": name, "images": images}
 
 
+def _list_geotagged() -> list[dict]:
+    """Return all images that have latitude+longitude in DynamoDB."""
+    if not _ddb:
+        return []
+    results: list[dict] = []
+    scan_kwargs: dict[str, Any] = {
+        "FilterExpression": boto3.dynamodb.conditions.Attr("latitude").exists()
+                            & boto3.dynamodb.conditions.Attr("longitude").exists(),
+    }
+    while True:
+        resp = _ddb.scan(**scan_kwargs)
+        for item in resp.get("Items", []):
+            cat = item.get("category", "")
+            fn = item.get("filename", "")
+            if cat and fn:
+                results.append({
+                    "category": cat,
+                    "filename": fn,
+                    "thumb": _thumb_url(cat, fn),
+                    "url": _display_url(cat, fn),
+                    "latitude": float(item["latitude"]),
+                    "longitude": float(item["longitude"]),
+                    "description": str(item.get("description", "")),
+                })
+        if "LastEvaluatedKey" not in resp:
+            break
+        scan_kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+    return results
+
+
 def _config() -> dict:
     return {
         "cognito": {
@@ -401,6 +432,8 @@ def _route(method: str, path: str, body: dict | None) -> dict:
             return _response(200, {"status": "ok"})
         if parts == ["config"]:
             return _response(200, _config(), cache_seconds=300)
+        if parts == ["geo"]:
+            return _response(200, {"images": _list_geotagged()}, cache_seconds=60)
         if parts == ["categories"]:
             return _response(200, {"categories": _list_categories()}, cache_seconds=60)
         if len(parts) == 2 and parts[0] == "categories":
