@@ -16,15 +16,19 @@ from __future__ import annotations
 import io
 import logging
 import os
+import time
+from decimal import Decimal
 from urllib.parse import unquote_plus
 
 import boto3
 from PIL import Image, ImageOps
+from PIL.ExifTags import GPSTAGS, TAGS
 
 LOG = logging.getLogger()
 LOG.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 BUCKET = os.environ["IMAGE_BUCKET"]
+METADATA_TABLE = os.environ.get("METADATA_TABLE", "")
 DISPLAY_MAX = int(os.environ.get("DISPLAY_MAX_PX", "2048"))
 THUMB_MAX = int(os.environ.get("THUMB_MAX_PX", "400"))
 JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", "85"))
@@ -42,6 +46,67 @@ _FORMAT_MAP = {
 }
 
 _s3 = boto3.client("s3")
+_ddb = boto3.resource("dynamodb").Table(METADATA_TABLE) if METADATA_TABLE else None
+
+
+def _extract_gps(img: Image.Image) -> tuple[float, float] | None:
+    """Extract GPS coordinates from EXIF data. Returns (lat, lon) or None."""
+    try:
+        exif_data = img._getexif()
+        if not exif_data:
+            return None
+
+        gps_info = {}
+        for tag_id, value in exif_data.items():
+            tag = TAGS.get(tag_id, tag_id)
+            if tag == "GPSInfo":
+                for gps_tag_id, gps_value in value.items():
+                    gps_tag = GPSTAGS.get(gps_tag_id, gps_tag_id)
+                    gps_info[gps_tag] = gps_value
+                break
+
+        if not gps_info or "GPSLatitude" not in gps_info or "GPSLongitude" not in gps_info:
+            return None
+
+        def _to_degrees(dms) -> float:
+            d, m, s = [float(v) for v in dms]
+            return d + m / 60.0 + s / 3600.0
+
+        lat = _to_degrees(gps_info["GPSLatitude"])
+        if gps_info.get("GPSLatitudeRef", "N") == "S":
+            lat = -lat
+
+        lon = _to_degrees(gps_info["GPSLongitude"])
+        if gps_info.get("GPSLongitudeRef", "E") == "W":
+            lon = -lon
+
+        if -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0:
+            return (lat, lon)
+        return None
+    except Exception:
+        LOG.debug("no GPS EXIF in image", exc_info=True)
+        return None
+
+
+def _store_gps_metadata(category: str, filename: str, lat: float, lon: float) -> None:
+    """Store GPS coordinates in DynamoDB (only if no metadata exists yet)."""
+    if not _ddb:
+        return
+    try:
+        _ddb.update_item(
+            Key={"category": category, "filename": filename},
+            UpdateExpression="SET latitude = if_not_exists(latitude, :lat), "
+                            "longitude = if_not_exists(longitude, :lon), "
+                            "updatedAt = :ts",
+            ExpressionAttributeValues={
+                ":lat": Decimal(str(round(lat, 6))),
+                ":lon": Decimal(str(round(lon, 6))),
+                ":ts": int(time.time()),
+            },
+        )
+        LOG.info("stored GPS metadata for %s/%s: lat=%s lon=%s", category, filename, lat, lon)
+    except Exception:
+        LOG.exception("failed to store GPS metadata for %s/%s", category, filename)
 
 
 def _resize(img: Image.Image, max_edge: int) -> Image.Image:
@@ -87,6 +152,8 @@ def _process_one(key: str) -> None:
 
     with Image.open(io.BytesIO(raw)) as src:
         src.load()
+        # Extract GPS coordinates before stripping EXIF.
+        gps = _extract_gps(src)
         # Honour EXIF orientation before resizing.
         oriented = ImageOps.exif_transpose(src)
         fmt = (src.format or "JPEG").upper()
@@ -118,6 +185,10 @@ def _process_one(key: str) -> None:
         "done %s/%s display=%dB thumb=%dB",
         category, filename, len(display_bytes), len(thumb_bytes),
     )
+
+    # Store extracted GPS coordinates in DynamoDB.
+    if gps:
+        _store_gps_metadata(category, filename, gps[0], gps[1])
 
 
 def handler(event: dict, _context) -> dict:

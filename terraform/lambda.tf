@@ -64,6 +64,19 @@ data "aws_iam_policy_document" "api_inline" {
       "${aws_s3_bucket.images.arn}/thumbs/*",
     ]
   }
+
+  statement {
+    sid    = "ImageMetadata"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:BatchGetItem",
+    ]
+    resources = [aws_dynamodb_table.images.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "api_inline" {
@@ -98,6 +111,7 @@ resource "aws_lambda_function" "api" {
       COGNITO_DOMAIN    = local.cognito_hosted_domain
       COGNITO_CLIENT_ID = aws_cognito_user_pool_client.site.id
       COGNITO_REGION    = var.aws_region
+      METADATA_TABLE    = aws_dynamodb_table.images.name
       LOG_LEVEL         = "INFO"
     }
   }
@@ -180,6 +194,16 @@ data "aws_iam_policy_document" "processor_inline" {
       "${aws_s3_bucket.images.arn}/thumbs/*",
     ]
   }
+
+  statement {
+    sid    = "WriteImageMetadata"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [aws_dynamodb_table.images.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "processor_inline" {
@@ -209,6 +233,7 @@ resource "aws_lambda_function" "processor" {
   environment {
     variables = {
       IMAGE_BUCKET   = aws_s3_bucket.images.bucket
+      METADATA_TABLE = aws_dynamodb_table.images.name
       DISPLAY_MAX_PX = "2048"
       THUMB_MAX_PX   = "400"
       JPEG_QUALITY   = "85"
@@ -249,7 +274,7 @@ resource "aws_apigatewayv2_api" "api" {
 
   cors_configuration {
     allow_origins = ["https://${var.domain_name}"]
-    allow_methods = ["GET", "HEAD", "OPTIONS", "POST", "DELETE"]
+    allow_methods = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE"]
     allow_headers = ["authorization", "content-type"]
     max_age       = 3600
   }
@@ -294,6 +319,14 @@ resource "aws_apigatewayv2_route" "api_admin_post" {
 resource "aws_apigatewayv2_route" "api_admin_delete" {
   api_id             = aws_apigatewayv2_api.api.id
   route_key          = "DELETE /api/admin/{proxy+}"
+  target             = "integrations/${aws_apigatewayv2_integration.api.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito.id
+}
+
+resource "aws_apigatewayv2_route" "api_admin_put" {
+  api_id             = aws_apigatewayv2_api.api.id
+  route_key          = "PUT /api/admin/{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.api.id}"
   authorization_type = "JWT"
   authorizer_id      = aws_apigatewayv2_authorizer.cognito.id

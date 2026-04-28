@@ -205,6 +205,7 @@ function renderAuthNav() {
 // ---------------------------------------------------------------------------
 const lightbox = document.getElementById("lightbox");
 const lightboxImg = lightbox.querySelector("img");
+const lightboxMeta = document.getElementById("lightbox-meta");
 let lightboxItems = [];
 let lightboxIndex = 0;
 
@@ -218,13 +219,27 @@ function openLightbox(items, index) {
 function closeLightbox() {
   lightbox.hidden = true;
   lightboxImg.src = "";
+  lightboxMeta.innerHTML = "";
   document.body.style.overflow = "";
 }
 function showLightbox() {
   if (!lightboxItems.length) return;
   lightboxIndex = (lightboxIndex + lightboxItems.length) % lightboxItems.length;
-  lightboxImg.src = lightboxItems[lightboxIndex].url;
-  lightboxImg.alt = lightboxItems[lightboxIndex].filename || "";
+  const item = lightboxItems[lightboxIndex];
+  lightboxImg.src = item.url;
+  lightboxImg.alt = item.filename || "";
+
+  // Show metadata below the image.
+  let metaHtml = "";
+  if (item.description) {
+    metaHtml += `<div class="meta-desc">${esc(item.description)}</div>`;
+  }
+  if (item.latitude != null && item.longitude != null) {
+    const lat = Number(item.latitude).toFixed(5);
+    const lon = Number(item.longitude).toFixed(5);
+    metaHtml += `<div class="meta-geo">📍 ${esc(lat)}, ${esc(lon)} — <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}" target="_blank" rel="noopener">map</a></div>`;
+  }
+  lightboxMeta.innerHTML = metaHtml;
 }
 lightbox.querySelector(".lightbox-close").addEventListener("click", closeLightbox);
 lightbox.querySelector(".lightbox-prev").addEventListener("click", (e) => { e.stopPropagation(); lightboxIndex--; showLightbox(); });
@@ -237,6 +252,58 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeLightbox();
   else if (e.key === "ArrowLeft") { lightboxIndex--; showLightbox(); }
   else if (e.key === "ArrowRight") { lightboxIndex++; showLightbox(); }
+});
+
+// ---------------------------------------------------------------------------
+// Metadata edit modal
+// ---------------------------------------------------------------------------
+const metaModal = document.getElementById("meta-modal");
+const metaForm = document.getElementById("meta-form");
+const metaDesc = document.getElementById("meta-desc");
+const metaLat = document.getElementById("meta-lat");
+const metaLng = document.getElementById("meta-lng");
+let metaEditCallback = null;
+
+function openMetaModal(img, category, onSaved) {
+  metaDesc.value = img.description || "";
+  metaLat.value = img.latitude != null ? img.latitude : "";
+  metaLng.value = img.longitude != null ? img.longitude : "";
+  metaEditCallback = { img, category, onSaved };
+  metaModal.hidden = false;
+}
+function closeMetaModal() {
+  metaModal.hidden = true;
+  metaEditCallback = null;
+}
+document.getElementById("meta-cancel").addEventListener("click", closeMetaModal);
+metaModal.addEventListener("click", (e) => { if (e.target === metaModal) closeMetaModal(); });
+metaForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!metaEditCallback) return;
+  const { img, category, onSaved } = metaEditCallback;
+  const body = { description: metaDesc.value };
+  if (metaLat.value !== "" && metaLng.value !== "") {
+    body.latitude = parseFloat(metaLat.value);
+    body.longitude = parseFloat(metaLng.value);
+  }
+  try {
+    const updated = await fetchAuthed(
+      `/api/admin/categories/${encodeURIComponent(category)}/images/${encodeURIComponent(img.filename)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    // Merge updated metadata back into the image object.
+    if (updated.description !== undefined) img.description = updated.description;
+    if (updated.latitude !== undefined) img.latitude = updated.latitude;
+    if (updated.longitude !== undefined) img.longitude = updated.longitude;
+    closeMetaModal();
+    if (onSaved) onSaved();
+  } catch (err) {
+    alert(`Failed to save metadata: ${err.message}`);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -271,6 +338,11 @@ async function renderHome() {
                  pattern="[a-zA-Z0-9][a-zA-Z0-9 _.\\-]{0,63}" />
           <input type="file" id="home-upload-files" accept="image/*" multiple required />
           <button type="submit" class="primary">Upload</button>
+          <div class="upload-meta-fields">
+            <textarea id="home-upload-desc" placeholder="Description (optional)" rows="1"></textarea>
+            <input type="number" id="home-upload-lat" step="any" min="-90" max="90" placeholder="Latitude" />
+            <input type="number" id="home-upload-lng" step="any" min="-180" max="180" placeholder="Longitude" />
+          </div>
         </form>
         <ul id="home-upload-progress" class="progress"></ul>
       </section>` : "";
@@ -284,7 +356,13 @@ async function renderHome() {
         const cat = document.getElementById("home-upload-cat").value.trim();
         const files = document.getElementById("home-upload-files").files;
         const log = document.getElementById("home-upload-progress");
-        await uploadFiles(cat, files, log);
+        const desc = document.getElementById("home-upload-desc")?.value || "";
+        const lat = document.getElementById("home-upload-lat")?.value || "";
+        const lng = document.getElementById("home-upload-lng")?.value || "";
+        const meta = {};
+        if (desc) meta.description = desc;
+        if (lat && lng) { meta.latitude = parseFloat(lat); meta.longitude = parseFloat(lng); }
+        await uploadFiles(cat, files, log, meta);
         location.hash = `#/c/${encodeURIComponent(cat)}`;
       });
     }
@@ -305,19 +383,30 @@ async function renderCategory(name) {
         <h3>Upload to “${esc(name)}”</h3>
         <form id="cat-upload-form">
           <input type="file" id="cat-upload-files" accept="image/*" multiple required />
-          <button type="submit" class="primary">Upload</button>
-        </form>
+          <button type="submit" class="primary">Upload</button>          <div class="upload-meta-fields">
+            <textarea id="cat-upload-desc" placeholder="Description (optional)" rows="1"></textarea>
+            <input type="number" id="cat-upload-lat" step="any" min="-90" max="90" placeholder="Latitude" />
+            <input type="number" id="cat-upload-lng" step="any" min="-180" max="180" placeholder="Longitude" />
+          </div>        </form>
         <ul id="cat-upload-progress" class="progress"></ul>
       </section>` : "";
 
-    const tiles = items.map((img, i) => `
+    const tiles = items.map((img, i) => {
+      let metaHint = "";
+      if (img.description) metaHint = esc(img.description);
+      else if (img.latitude != null) metaHint = `📍 ${Number(img.latitude).toFixed(2)}, ${Number(img.longitude).toFixed(2)}`;
+
+      return `
       <div class="gallery-item" data-index="${i}">
         <img loading="lazy" src="${esc(img.thumb || img.url)}" alt="${esc(img.filename)}"
              data-url="${esc(img.url)}"
              onerror="if(this.dataset.fallback!=='1'){this.dataset.fallback='1';this.src=this.dataset.url;}" />
+        ${admin ? `<button class="edit-meta" data-index="${i}" title="Edit metadata">✏️</button>` : ""}
         ${admin ? `<button class="delete danger" data-filename="${esc(img.filename)}" title="Delete">🗑</button>` : ""}
+        ${metaHint ? `<div class="img-meta">${metaHint}</div>` : ""}
       </div>
-    `).join("");
+    `;
+    }).join("");
 
     render(`
       <section><a class="back" href="#/">← all categories</a><h2>${esc(name)}</h2></section>
@@ -335,9 +424,22 @@ async function renderCategory(name) {
         e.preventDefault();
         const files = document.getElementById("cat-upload-files").files;
         const log = document.getElementById("cat-upload-progress");
-        await uploadFiles(name, files, log);
+        const desc = document.getElementById("cat-upload-desc")?.value || "";
+        const lat = document.getElementById("cat-upload-lat")?.value || "";
+        const lng = document.getElementById("cat-upload-lng")?.value || "";
+        const meta = {};
+        if (desc) meta.description = desc;
+        if (lat && lng) { meta.latitude = parseFloat(lat); meta.longitude = parseFloat(lng); }
+        await uploadFiles(name, files, log, meta);
         // Re-render so newly-uploaded pending files show up.
         renderCategory(name);
+      });
+      document.querySelectorAll(".gallery-item .edit-meta").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.index, 10);
+          openMetaModal(items[idx], name, () => renderCategory(name));
+        });
       });
       document.querySelectorAll(".gallery-item .delete").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
@@ -372,7 +474,7 @@ function sanitizeFilename(name) {
   return `${stem || "image"}.${ext.toLowerCase()}`;
 }
 
-async function uploadFiles(category, files, logEl) {
+async function uploadFiles(category, files, logEl, meta = {}) {
   if (!files?.length) return;
   for (const file of files) {
     const filename = sanitizeFilename(file.name);
@@ -380,12 +482,13 @@ async function uploadFiles(category, files, logEl) {
     li.textContent = `${filename}: requesting upload URL…`;
     logEl.appendChild(li);
     try {
+      const presignBody = { filename, contentType: file.type || "image/jpeg", ...meta };
       const presign = await fetchAuthed(
         `/api/admin/categories/${encodeURIComponent(category)}/uploads`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ filename, contentType: file.type || "image/jpeg" }),
+          body: JSON.stringify(presignBody),
         },
       );
 

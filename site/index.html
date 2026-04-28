@@ -29,6 +29,22 @@
     <button class="lightbox-prev" aria-label="Previous">‹</button>
     <img alt="" />
     <button class="lightbox-next" aria-label="Next">›</button>
+    <div class="lightbox-meta" id="lightbox-meta"></div>
+  </div>
+
+  <div id="meta-modal" class="meta-modal" hidden>
+    <div class="meta-modal-content">
+      <h3>Edit image metadata</h3>
+      <form id="meta-form">
+        <label>Description<br /><textarea id="meta-desc" rows="3" maxlength="2000"></textarea></label>
+        <label>Latitude<br /><input type="number" id="meta-lat" step="any" min="-90" max="90" placeholder="e.g. 47.38" /></label>
+        <label>Longitude<br /><input type="number" id="meta-lng" step="any" min="-180" max="180" placeholder="e.g. 8.54" /></label>
+        <div class="meta-modal-actions">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="meta-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <footer>

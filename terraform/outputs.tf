@@ -51,3 +51,8 @@ output "route53_name_servers" {
 output "site_url" {
   value = "https://${var.domain_name}"
 }
+
+output "metadata_table" {
+  description = "DynamoDB table for image metadata (geo-tags, descriptions)."
+  value       = aws_dynamodb_table.images.name
+}

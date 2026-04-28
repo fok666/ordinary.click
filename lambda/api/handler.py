@@ -10,6 +10,8 @@ Public endpoints (cached at CloudFront):
 Admin endpoints (require a valid Cognito JWT — enforced by API Gateway):
 
     POST   /api/admin/categories/<name>/uploads     -> presigned POST for direct S3 upload
+                                                       (optionally accepts description, latitude, longitude)
+    PUT    /api/admin/categories/<name>/images/<file> -> update image metadata (description, geo)
     DELETE /api/admin/categories/<name>/images/<file>
 
 S3 layout:
@@ -29,6 +31,8 @@ import json
 import logging
 import os
 import re
+import time
+from decimal import Decimal
 from typing import Any
 from urllib.parse import unquote
 
@@ -39,6 +43,7 @@ LOG = logging.getLogger()
 LOG.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 BUCKET = os.environ["IMAGE_BUCKET"]
+METADATA_TABLE = os.environ.get("METADATA_TABLE", "")
 IMAGE_HOST = os.environ.get("IMAGE_HOST", "").rstrip("/")
 
 COGNITO_DOMAIN = os.environ.get("COGNITO_DOMAIN", "")
@@ -67,6 +72,7 @@ _s3 = boto3.client(
     "s3",
     config=Config(retries={"max_attempts": 3, "mode": "standard"}, signature_version="s3v4"),
 )
+_ddb = boto3.resource("dynamodb").Table(METADATA_TABLE) if METADATA_TABLE else None
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +115,90 @@ def _safe_filename(name: str) -> str | None:
     if not name or ".." in name or not _FILE_RE.match(name):
         return None
     return name
+
+
+def _safe_coordinate(val: Any) -> float | None:
+    """Validate and return a latitude or longitude as a float, or None."""
+    if val is None or val == "":
+        return None
+    try:
+        f = float(val)
+    except (TypeError, ValueError):
+        return None
+    if not (-180.0 <= f <= 180.0):
+        return None
+    return f
+
+
+# ---------------------------------------------------------------------------
+# DynamoDB metadata helpers
+# ---------------------------------------------------------------------------
+
+def _get_metadata(category: str, filename: str) -> dict:
+    if not _ddb:
+        return {}
+    resp = _ddb.get_item(Key={"category": category, "filename": filename})
+    item = resp.get("Item", {})
+    return _item_to_meta(item)
+
+
+def _batch_get_metadata(category: str, filenames: list[str]) -> dict[str, dict]:
+    """Return {filename: meta_dict} for all files in a category."""
+    if not _ddb or not filenames:
+        return {}
+    resp = _ddb.query(
+        KeyConditionExpression=boto3.dynamodb.conditions.Key("category").eq(category),
+    )
+    result: dict[str, dict] = {}
+    for item in resp.get("Items", []):
+        fn = item.get("filename", "")
+        if fn:
+            result[fn] = _item_to_meta(item)
+    # Handle pagination.
+    while resp.get("LastEvaluatedKey"):
+        resp = _ddb.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key("category").eq(category),
+            ExclusiveStartKey=resp["LastEvaluatedKey"],
+        )
+        for item in resp.get("Items", []):
+            fn = item.get("filename", "")
+            if fn:
+                result[fn] = _item_to_meta(item)
+    return result
+
+
+def _item_to_meta(item: dict) -> dict:
+    meta: dict[str, Any] = {}
+    if "description" in item:
+        meta["description"] = str(item["description"])
+    if "latitude" in item:
+        meta["latitude"] = float(item["latitude"])
+    if "longitude" in item:
+        meta["longitude"] = float(item["longitude"])
+    return meta
+
+
+def _put_metadata(category: str, filename: str, *, description: str | None = None,
+                   latitude: float | None = None, longitude: float | None = None) -> None:
+    if not _ddb:
+        return
+    item: dict[str, Any] = {
+        "category": category,
+        "filename": filename,
+        "updatedAt": int(time.time()),
+    }
+    if description is not None:
+        item["description"] = description
+    if latitude is not None and longitude is not None:
+        item["latitude"] = Decimal(str(latitude))
+        item["longitude"] = Decimal(str(longitude))
+    _ddb.put_item(Item=item)
+
+
+def _delete_metadata(category: str, filename: str) -> None:
+    if not _ddb:
+        return
+    _ddb.delete_item(Key={"category": category, "filename": filename})
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +270,15 @@ def _list_category(name: str) -> dict | None:
         return None
 
     images.sort(key=lambda i: i["filename"])
+
+    # Merge DynamoDB metadata into each image.
+    filenames = [img["filename"] for img in images]
+    meta_map = _batch_get_metadata(name, filenames)
+    for img in images:
+        meta = meta_map.get(img["filename"], {})
+        if meta:
+            img.update(meta)
+
     return {"name": name, "images": images}
 
 
@@ -224,6 +323,16 @@ def _presign_upload(category: str, body: dict) -> dict:
         ],
         ExpiresIn=PRESIGN_EXPIRES_SECONDS,
     )
+
+    # Optionally store metadata supplied at upload time.
+    description = body.get("description")
+    lat = _safe_coordinate(body.get("latitude"))
+    lng = _safe_coordinate(body.get("longitude"))
+    if description is not None or (lat is not None and lng is not None):
+        _put_metadata(safe_cat, safe_file,
+                      description=str(description)[:2000] if description is not None else None,
+                      latitude=lat, longitude=lng)
+
     return _response(200, {
         "url": post["url"],
         "fields": post["fields"],
@@ -248,7 +357,31 @@ def _delete_image(category: str, filename: str) -> dict:
         Bucket=BUCKET,
         Delete={"Objects": [{"Key": k} for k in keys], "Quiet": True},
     )
+    _delete_metadata(safe_cat, safe_file)
     return _response(200, {"deleted": safe_file})
+
+
+def _update_metadata(category: str, filename: str, body: dict) -> dict:
+    safe_cat = _safe_name(category)
+    safe_file = _safe_filename(filename or "")
+    if not safe_cat or not safe_file:
+        return _response(400, {"error": "invalid category or filename"})
+
+    description = body.get("description")
+    if description is not None:
+        description = str(description)[:2000]  # cap length
+
+    lat = _safe_coordinate(body.get("latitude"))
+    lng = _safe_coordinate(body.get("longitude"))
+    # Require both or neither.
+    if (lat is None) != (lng is None):
+        return _response(400, {"error": "latitude and longitude must both be provided or both omitted"})
+    if lat is not None and not (-90.0 <= lat <= 90.0):
+        return _response(400, {"error": "latitude must be between -90 and 90"})
+
+    _put_metadata(safe_cat, safe_file, description=description, latitude=lat, longitude=lng)
+    meta = _get_metadata(safe_cat, safe_file)
+    return _response(200, {"category": safe_cat, "filename": safe_file, **meta})
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +417,9 @@ def _route(method: str, path: str, body: dict | None) -> dict:
         # POST /admin/categories/<name>/uploads
         if method == "POST" and len(admin) == 3 and admin[0] == "categories" and admin[2] == "uploads":
             return _presign_upload(unquote(admin[1]), body or {})
+        # PUT /admin/categories/<name>/images/<filename>  (update metadata)
+        if method == "PUT" and len(admin) == 4 and admin[0] == "categories" and admin[2] == "images":
+            return _update_metadata(unquote(admin[1]), unquote(admin[3]), body or {})
         # DELETE /admin/categories/<name>/images/<filename>
         if method == "DELETE" and len(admin) == 4 and admin[0] == "categories" and admin[2] == "images":
             return _delete_image(unquote(admin[1]), unquote(admin[3]))
