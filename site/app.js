@@ -1,8 +1,8 @@
 // ordinary.click client-side app.
 //
 // Features:
-//   - Hash-based routing: /  and  /c/<category>
-//   - Click image to open lightbox (with prev/next + Esc/arrow keys)
+//   - Hash-based routing: /  /gallery  /map  /c/<category>
+//   - Cover page with hero image and section links
 //   - Cognito Hosted UI login (Authorization Code + PKCE)
 //   - Admin (logged-in) UI:
 //       * Upload images to a category (presigned POST to S3, async resize)
@@ -315,15 +315,67 @@ function render(html) {
   app.innerHTML = html;
 }
 
-async function renderHome() {
+// ---------------------------------------------------------------------------
+// Cover page — landing with hero image + section links
+// ---------------------------------------------------------------------------
+async function renderCover() {
+  render(`<section class="cover-loading"><p>Loading…</p></section>`);
+  try {
+    const { categories } = await fetchJSON("/api/categories");
+
+    // Collect all covers to pick a random hero.
+    const covers = categories.filter((c) => c.cover);
+    const hero = covers.length ? covers[Math.floor(Math.random() * covers.length)] : null;
+
+    const totalPhotos = categories.reduce((n, c) => n + c.count, 0);
+
+    const heroHtml = hero ? `
+      <div class="cover-hero">
+        <img src="${esc(hero.coverFallback || hero.cover)}" alt="${esc(hero.name)}" />
+        <div class="cover-hero-overlay">
+          <span class="cover-hero-label">From <strong>${esc(hero.name)}</strong></span>
+        </div>
+      </div>` : "";
+
+    render(`
+      ${heroHtml}
+      <section class="cover-intro">
+        <h2>Welcome</h2>
+        <p>
+          A curated collection of ordinary, everyday moments captured in photographs.
+          ${totalPhotos ? `Currently <strong>${totalPhotos}</strong> photo${totalPhotos === 1 ? "" : "s"} across <strong>${categories.length}</strong> categor${categories.length === 1 ? "y" : "ies"}.` : "Start exploring or sign in to upload your first photos."}
+        </p>
+      </section>
+      <section class="cover-sections">
+        <a class="cover-card" href="#/gallery">
+          <span class="cover-card-icon">🖼️</span>
+          <strong>Gallery</strong>
+          <span>Browse photos organised by category</span>
+        </a>
+        <a class="cover-card" href="#/map">
+          <span class="cover-card-icon">🗺️</span>
+          <strong>Map</strong>
+          <span>Explore geo-tagged photos on a world map</span>
+        </a>
+      </section>
+    `);
+  } catch (err) {
+    render(`<section><p>Couldn't load: ${esc(err.message)}</p></section>`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gallery — category listing + upload
+// ---------------------------------------------------------------------------
+async function renderGallery() {
   render(`<section id="intro"><p>Loading categories…</p></section>`);
   try {
     const { categories } = await fetchJSON("/api/categories");
     const admin = isLoggedIn();
 
     const intro = categories.length
-      ? `<section><p>Pick a category below.</p></section>`
-      : `<section><p>No categories yet${admin ? " — upload below to create one." : "."}</p></section>`;
+      ? `<section><a class="back" href="#/">← home</a><h2>Gallery</h2><p>Pick a category below.</p></section>`
+      : `<section><a class="back" href="#/">← home</a><h2>Gallery</h2><p>No categories yet${admin ? " — upload below to create one." : "."}</p></section>`;
 
     const cards = categories.map((c) => `
       <a class="category-card" href="#/c/${encodeURIComponent(c.name)}">
@@ -377,7 +429,7 @@ async function renderHome() {
 
 async function renderCategory(name) {
   const admin = isLoggedIn();
-  render(`<section><a class="back" href="#/">← all categories</a><h2>${esc(name)}</h2><p>Loading…</p></section>`);
+  render(`<section><a class="back" href="#/gallery">← gallery</a><h2>${esc(name)}</h2><p>Loading…</p></section>`);
   try {
     const data = await fetchJSON(`/api/categories/${encodeURIComponent(name)}`);
     const items = data.images;
@@ -413,7 +465,7 @@ async function renderCategory(name) {
     }).join("");
 
     render(`
-      <section><a class="back" href="#/">← all categories</a><h2>${esc(name)}</h2></section>
+      <section><a class="back" href="#/gallery">← gallery</a><h2>${esc(name)}</h2></section>
       ${adminPanel}
       <section class="gallery">${tiles}</section>
     `);
@@ -463,7 +515,7 @@ async function renderCategory(name) {
       });
     }
   } catch (err) {
-    render(`<section><a class="back" href="#/">← all categories</a><p>Couldn't load category: ${esc(err.message)}</p></section>`);
+    render(`<section><a class="back" href="#/gallery">← gallery</a><p>Couldn't load category: ${esc(err.message)}</p></section>`);
   }
 }
 
@@ -521,7 +573,7 @@ let mapInstance = null;
 async function renderMap() {
   render(`
     <section>
-      <a class="back" href="#/">← all categories</a>
+      <a class="back" href="#/">← home</a>
       <h2>Geo-tagged photos</h2>
     </section>
     <div id="geo-map"></div>
@@ -533,7 +585,7 @@ async function renderMap() {
     if (!images.length) {
       render(`
         <section>
-          <a class="back" href="#/">← all categories</a>
+          <a class="back" href="#/">← home</a>
           <h2>Geo-tagged photos</h2>
           <p>No geo-tagged images yet. Add coordinates to your photos to see them on the map.</p>
         </section>
@@ -593,7 +645,7 @@ async function renderMap() {
   } catch (err) {
     render(`
       <section>
-        <a class="back" href="#/">← all categories</a>
+        <a class="back" href="#/">← home</a>
         <p>Couldn't load geo-tagged images: ${esc(err.message)}</p>
       </section>
     `);
@@ -605,10 +657,11 @@ async function renderMap() {
 // ---------------------------------------------------------------------------
 function route() {
   const hash = location.hash.replace(/^#/, "") || "/";
+  if (hash === "/gallery") return renderGallery();
   if (hash === "/map") return renderMap();
   const m = hash.match(/^\/c\/(.+)$/);
   if (m) return renderCategory(decodeURIComponent(m[1]));
-  return renderHome();
+  return renderCover();
 }
 
 window.addEventListener("hashchange", route);
