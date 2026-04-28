@@ -74,6 +74,7 @@ data "aws_iam_policy_document" "api_inline" {
       "dynamodb:DeleteItem",
       "dynamodb:Query",
       "dynamodb:BatchGetItem",
+      "dynamodb:Scan"
     ]
     resources = [aws_dynamodb_table.images.arn]
   }
