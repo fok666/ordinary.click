@@ -45,8 +45,19 @@
       <h3>Edit image metadata</h3>
       <form id="meta-form">
         <label>Description<br /><textarea id="meta-desc" rows="3" maxlength="2000"></textarea></label>
-        <label>Latitude<br /><input type="number" id="meta-lat" step="any" min="-90" max="90" placeholder="e.g. 47.38" /></label>
-        <label>Longitude<br /><input type="number" id="meta-lng" step="any" min="-180" max="180" placeholder="e.g. 8.54" /></label>
+        <div class="location-picker" id="meta-location-picker">
+          <div class="location-search-wrap">
+            <input type="text" class="location-search" placeholder="Search city or place…" autocomplete="off" />
+            <ul class="location-results"></ul>
+          </div>
+          <div class="location-coords">
+            <label>Lat<br /><input type="number" id="meta-lat" step="any" min="-90" max="90" placeholder="e.g. 47.38" /></label>
+            <label>Lng<br /><input type="number" id="meta-lng" step="any" min="-180" max="180" placeholder="e.g. 8.54" /></label>
+            <button type="button" class="location-map-btn" title="Pick on map">📍</button>
+          </div>
+          <div class="location-picker-map"></div>
+          <div class="recent-locations"></div>
+        </div>
         <div class="meta-modal-actions">
           <button type="submit" class="primary">Save</button>
           <button type="button" id="meta-cancel">Cancel</button>

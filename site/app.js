@@ -255,6 +255,152 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Location picker — Nominatim search, mini-map, recent locations
+// ---------------------------------------------------------------------------
+const RECENT_LOC_KEY = "oc.recent-locations";
+const RECENT_LOC_MAX = 10;
+let _nominatimTimer = null;
+let activePickers = [];
+
+function getRecentLocations() {
+  try { return JSON.parse(localStorage.getItem(RECENT_LOC_KEY) || "[]").slice(0, RECENT_LOC_MAX); }
+  catch { return []; }
+}
+
+function addRecentLocation(name, lat, lng) {
+  const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+  let list = getRecentLocations().filter(
+    (l) => `${Number(l.lat).toFixed(5)},${Number(l.lng).toFixed(5)}` !== key,
+  );
+  list.unshift({ name, lat: Number(lat), lng: Number(lng) });
+  localStorage.setItem(RECENT_LOC_KEY, JSON.stringify(list.slice(0, RECENT_LOC_MAX)));
+}
+
+async function searchNominatim(query) {
+  const params = new URLSearchParams({ format: "json", q: query, limit: "5", addressdetails: "0" });
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+function attachLocationPicker(container, latInput, lngInput) {
+  const searchInput = container.querySelector(".location-search");
+  const resultsList = container.querySelector(".location-results");
+  const mapBtn = container.querySelector(".location-map-btn");
+  const mapDiv = container.querySelector(".location-picker-map");
+  const recentDiv = container.querySelector(".recent-locations");
+  let pickerMap = null;
+  let pickerMarker = null;
+
+  // --- Nominatim search with 1s debounce ---
+  searchInput.addEventListener("input", () => {
+    clearTimeout(_nominatimTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) { resultsList.innerHTML = ""; return; }
+    _nominatimTimer = setTimeout(async () => {
+      try {
+        const results = await searchNominatim(q);
+        resultsList.innerHTML = results.map((r) =>
+          `<li data-lat="${esc(r.lat)}" data-lng="${esc(r.lon)}">${esc(r.display_name)}</li>`
+        ).join("");
+      } catch { resultsList.innerHTML = ""; }
+    }, 1000);
+  });
+
+  resultsList.addEventListener("click", (e) => {
+    const li = e.target.closest("li");
+    if (!li) return;
+    latInput.value = Number(li.dataset.lat).toFixed(6);
+    lngInput.value = Number(li.dataset.lng).toFixed(6);
+    searchInput.value = li.textContent;
+    resultsList.innerHTML = "";
+    updateMarker(Number(li.dataset.lat), Number(li.dataset.lng));
+  });
+
+  // Close results when clicking outside
+  const outsideHandler = (e) => {
+    if (!container.contains(e.target)) resultsList.innerHTML = "";
+  };
+  document.addEventListener("click", outsideHandler);
+
+  // --- Mini-map toggle ---
+  mapBtn.addEventListener("click", () => {
+    const visible = mapDiv.style.display === "block";
+    mapDiv.style.display = visible ? "none" : "block";
+    if (!visible) {
+      if (!pickerMap) {
+        pickerMap = L.map(mapDiv, { zoomControl: true });
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+        }).addTo(pickerMap);
+        pickerMap.on("click", (e) => {
+          latInput.value = e.latlng.lat.toFixed(6);
+          lngInput.value = e.latlng.lng.toFixed(6);
+          updateMarker(e.latlng.lat, e.latlng.lng);
+        });
+      }
+      const lat = parseFloat(latInput.value);
+      const lng = parseFloat(lngInput.value);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        pickerMap.setView([lat, lng], 13);
+        updateMarker(lat, lng);
+      } else {
+        pickerMap.setView([20, 0], 2);
+      }
+      setTimeout(() => pickerMap.invalidateSize(), 100);
+    }
+  });
+
+  function updateMarker(lat, lng) {
+    if (!pickerMap) return;
+    if (pickerMarker) pickerMarker.setLatLng([lat, lng]);
+    else pickerMarker = L.marker([lat, lng]).addTo(pickerMap);
+    pickerMap.panTo([lat, lng]);
+  }
+
+  // --- Recent locations ---
+  function renderRecent() {
+    const recent = getRecentLocations();
+    if (!recent.length) { recentDiv.innerHTML = ""; return; }
+    recentDiv.innerHTML = `<span class="recent-label">Recent:</span>` +
+      recent.map((r) =>
+        `<button type="button" class="recent-loc-chip" data-lat="${esc(String(r.lat))}" data-lng="${esc(String(r.lng))}">${esc(r.name)}</button>`
+      ).join("");
+  }
+  renderRecent();
+
+  recentDiv.addEventListener("click", (e) => {
+    const chip = e.target.closest(".recent-loc-chip");
+    if (!chip) return;
+    latInput.value = Number(chip.dataset.lat).toFixed(6);
+    lngInput.value = Number(chip.dataset.lng).toFixed(6);
+    searchInput.value = chip.textContent;
+    if (pickerMap) {
+      updateMarker(Number(chip.dataset.lat), Number(chip.dataset.lng));
+    }
+  });
+
+  const picker = {
+    destroy() {
+      document.removeEventListener("click", outsideHandler);
+      if (pickerMap) { pickerMap.remove(); pickerMap = null; }
+    },
+    saveRecent() {
+      const lat = parseFloat(latInput.value);
+      const lng = parseFloat(lngInput.value);
+      if (isNaN(lat) || isNaN(lng)) return;
+      const name = searchInput.value.trim() || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      addRecentLocation(name, lat, lng);
+    },
+  };
+  activePickers.push(picker);
+  return picker;
+}
+
+// ---------------------------------------------------------------------------
 // Metadata edit modal
 // ---------------------------------------------------------------------------
 const metaModal = document.getElementById("meta-modal");
@@ -263,6 +409,7 @@ const metaDesc = document.getElementById("meta-desc");
 const metaLat = document.getElementById("meta-lat");
 const metaLng = document.getElementById("meta-lng");
 let metaEditCallback = null;
+let metaPicker = null;
 
 function openMetaModal(img, category, onSaved) {
   metaDesc.value = img.description || "";
@@ -270,8 +417,15 @@ function openMetaModal(img, category, onSaved) {
   metaLng.value = img.longitude != null ? img.longitude : "";
   metaEditCallback = { img, category, onSaved };
   metaModal.hidden = false;
+  if (metaPicker) metaPicker.destroy();
+  const pickerEl = document.getElementById("meta-location-picker");
+  pickerEl.querySelector(".location-search").value = "";
+  pickerEl.querySelector(".location-results").innerHTML = "";
+  pickerEl.querySelector(".location-picker-map").style.display = "none";
+  metaPicker = attachLocationPicker(pickerEl, metaLat, metaLng);
 }
 function closeMetaModal() {
+  if (metaPicker) { metaPicker.destroy(); metaPicker = null; }
   metaModal.hidden = true;
   metaEditCallback = null;
 }
@@ -299,6 +453,7 @@ metaForm.addEventListener("submit", async (e) => {
     if (updated.description !== undefined) img.description = updated.description;
     if (updated.latitude !== undefined) img.latitude = updated.latitude;
     if (updated.longitude !== undefined) img.longitude = updated.longitude;
+    if (metaPicker) metaPicker.saveRecent();
     closeMetaModal();
     if (onSaved) onSaved();
   } catch (err) {
@@ -310,8 +465,9 @@ metaForm.addEventListener("submit", async (e) => {
 // Rendering
 // ---------------------------------------------------------------------------
 function render(html) {
-  // Clean up map instance when leaving the map page.
   if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+  activePickers.forEach((p) => p.destroy());
+  activePickers = [];
   app.innerHTML = html;
 }
 
@@ -396,8 +552,19 @@ async function renderGallery() {
           <button type="submit" class="primary">Upload</button>
           <div class="upload-meta-fields">
             <textarea id="home-upload-desc" placeholder="Description (optional)" rows="1"></textarea>
-            <input type="number" id="home-upload-lat" step="any" min="-90" max="90" placeholder="Latitude" />
-            <input type="number" id="home-upload-lng" step="any" min="-180" max="180" placeholder="Longitude" />
+            <div class="location-picker" id="home-location-picker">
+              <div class="location-search-wrap">
+                <input type="text" class="location-search" placeholder="Search city or place…" autocomplete="off" />
+                <ul class="location-results"></ul>
+              </div>
+              <div class="location-coords">
+                <input type="number" id="home-upload-lat" step="any" min="-90" max="90" placeholder="Latitude" />
+                <input type="number" id="home-upload-lng" step="any" min="-180" max="180" placeholder="Longitude" />
+                <button type="button" class="location-map-btn" title="Pick on map">📍</button>
+              </div>
+              <div class="location-picker-map"></div>
+              <div class="recent-locations"></div>
+            </div>
           </div>
         </form>
         <ul id="home-upload-progress" class="progress"></ul>
@@ -406,6 +573,11 @@ async function renderGallery() {
     render(`${intro}${adminPanel}<section class="categories">${cards}</section>`);
 
     if (admin) {
+      const homePicker = attachLocationPicker(
+        document.getElementById("home-location-picker"),
+        document.getElementById("home-upload-lat"),
+        document.getElementById("home-upload-lng"),
+      );
       const form = document.getElementById("home-upload-form");
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -419,6 +591,7 @@ async function renderGallery() {
         if (desc) meta.description = desc;
         if (lat && lng) { meta.latitude = parseFloat(lat); meta.longitude = parseFloat(lng); }
         await uploadFiles(cat, files, log, meta);
+        homePicker.saveRecent();
         location.hash = `#/c/${encodeURIComponent(cat)}`;
       });
     }
@@ -441,8 +614,19 @@ async function renderCategory(name) {
           <input type="file" id="cat-upload-files" accept="image/*" multiple required />
           <button type="submit" class="primary">Upload</button>          <div class="upload-meta-fields">
             <textarea id="cat-upload-desc" placeholder="Description (optional)" rows="1"></textarea>
-            <input type="number" id="cat-upload-lat" step="any" min="-90" max="90" placeholder="Latitude" />
-            <input type="number" id="cat-upload-lng" step="any" min="-180" max="180" placeholder="Longitude" />
+            <div class="location-picker" id="cat-location-picker">
+              <div class="location-search-wrap">
+                <input type="text" class="location-search" placeholder="Search city or place…" autocomplete="off" />
+                <ul class="location-results"></ul>
+              </div>
+              <div class="location-coords">
+                <input type="number" id="cat-upload-lat" step="any" min="-90" max="90" placeholder="Latitude" />
+                <input type="number" id="cat-upload-lng" step="any" min="-180" max="180" placeholder="Longitude" />
+                <button type="button" class="location-map-btn" title="Pick on map">📍</button>
+              </div>
+              <div class="location-picker-map"></div>
+              <div class="recent-locations"></div>
+            </div>
           </div>        </form>
         <ul id="cat-upload-progress" class="progress"></ul>
       </section>` : "";
@@ -476,6 +660,11 @@ async function renderCategory(name) {
     });
 
     if (admin) {
+      const catPicker = attachLocationPicker(
+        document.getElementById("cat-location-picker"),
+        document.getElementById("cat-upload-lat"),
+        document.getElementById("cat-upload-lng"),
+      );
       document.getElementById("cat-upload-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const files = document.getElementById("cat-upload-files").files;
@@ -487,6 +676,7 @@ async function renderCategory(name) {
         if (desc) meta.description = desc;
         if (lat && lng) { meta.latitude = parseFloat(lat); meta.longitude = parseFloat(lng); }
         await uploadFiles(name, files, log, meta);
+        catPicker.saveRecent();
         // Re-render so newly-uploaded pending files show up.
         renderCategory(name);
       });

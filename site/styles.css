@@ -360,3 +360,67 @@ footer { color: var(--muted); text-align: center; }
 .map-popup-info { font-size: .85rem; line-height: 1.4; max-width: 180px; }
 .map-popup-info strong { font-weight: 600; }
 .map-popup-desc { color: #666; font-size: .8rem; }
+
+/* --- Location picker ----------------------------------------------------- */
+.location-picker {
+  width: 100%; margin-top: .3rem;
+}
+.location-search-wrap {
+  position: relative; width: 100%; margin-bottom: .4rem;
+}
+.location-search-wrap .location-search {
+  width: 100%; font: inherit; padding: .4rem .6rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font-size: .9rem;
+}
+.location-results {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+  margin: 0; padding: 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--border); border-top: 0;
+  border-radius: 0 0 6px 6px; max-height: 200px; overflow-y: auto;
+}
+.location-results:empty { display: none; }
+.location-results li {
+  padding: .45rem .6rem; font-size: .85rem; cursor: pointer;
+  border-bottom: 1px solid var(--border); color: var(--fg);
+}
+.location-results li:last-child { border-bottom: 0; }
+.location-results li:hover { background: var(--accent); color: #fff; }
+
+.location-coords {
+  display: flex; gap: .4rem; align-items: flex-end; margin-bottom: .4rem;
+}
+.location-coords label { flex: 1; font-size: .85rem; color: var(--muted); }
+.location-coords input[type="number"] {
+  width: 100%; margin-top: .15rem; font: inherit; padding: .35rem .5rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font-size: .9rem;
+}
+.location-map-btn {
+  padding: .35rem .6rem; font-size: 1rem; line-height: 1;
+  white-space: nowrap; flex-shrink: 0; align-self: flex-end;
+}
+
+.location-picker-map {
+  display: none; width: 100%; height: 200px;
+  border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--border); margin-bottom: .4rem;
+}
+
+.recent-locations {
+  display: flex; gap: .3rem; flex-wrap: wrap; align-items: center;
+}
+.recent-locations:empty { display: none; }
+.recent-label { font-size: .8rem; color: var(--muted); }
+.recent-loc-chip {
+  padding: .2rem .5rem; font-size: .78rem; line-height: 1.2;
+  border-radius: 12px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); cursor: pointer;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.recent-loc-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* location picker inside upload meta fields */
+.upload-meta-fields .location-picker { margin-top: 0; }
+.upload-meta-fields .location-coords label { display: none; }
+.upload-meta-fields .location-coords input[type="number"] { margin-top: 0; }
