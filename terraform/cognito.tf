@@ -81,8 +81,8 @@ resource "aws_cognito_user_pool_client" "site" {
     "ALLOW_REFRESH_TOKEN_AUTH",
   ]
 
-  access_token_validity  = 60   # minutes
-  id_token_validity      = 60   # minutes
+  access_token_validity  = 1440   # minutes = 1 day
+  id_token_validity      = 1440   # minutes = 1 day
   refresh_token_validity = 30   # days
   token_validity_units {
     access_token  = "minutes"
