@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Content License — my.ordinary.click</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="icon" href="data:," />
+  <style>
+    .license-page {
+      max-width: 760px;
+      margin: 2.5rem auto;
+      padding: 0 1.5rem 4rem;
+    }
+    .license-page h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+    .license-page h2 {
+      font-size: 1.1rem;
+      margin-top: 2rem;
+      padding-bottom: 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .license-page h3 { font-size: 1rem; margin-top: 1.5rem; }
+    .license-page p, .license-page li { color: var(--muted); line-height: 1.7; }
+    .license-page strong { color: var(--fg); }
+    .license-page a { color: var(--accent); }
+    .license-page ol, .license-page ul { padding-left: 1.5rem; }
+    .license-page ol > li { margin-bottom: 0.75rem; }
+    .license-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      margin: 1rem 0 1.5rem;
+      font-size: 0.875rem;
+      color: var(--fg);
+      text-decoration: none;
+    }
+    .license-badge img { height: 22px; }
+    .callout {
+      background: var(--surface);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      padding: 1rem 1.25rem;
+      margin: 1.25rem 0;
+    }
+    .callout p { color: var(--fg); margin: 0; }
+    .separator { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+    .cite-block {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.85rem 1.1rem;
+      font-family: monospace;
+      font-size: 0.875rem;
+      color: var(--muted);
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="site-banner">
+    <div class="site-banner-inner">
+      <div>
+        <h1><a href="/">my.ordinary.click</a></h1>
+        <p class="tagline">My personal collection of unremarkable, ordinary moments.</p>
+      </div>
+      <nav class="site-nav">
+        <a href="#/">Home</a>
+        <a href="#/gallery">Gallery</a>
+        <a href="#/map">Map</a>
+      </nav>
+    </div>
+  </div>
+
+  <main class="license-page">
+    <h1>Content License</h1>
+    <p>This page covers the license that applies to all <strong>photographs and media files</strong> published on my.ordinary.click.</p>
+
+    <a class="license-badge"
+       href="https://creativecommons.org/licenses/by-sa/4.0/"
+       rel="license noopener" target="_blank">
+      <img src="https://licensebuttons.net/l/by-sa/4.0/88x31.png"
+           alt="Creative Commons Attribution-ShareAlike 4.0 International" />
+      CC BY-SA 4.0 + AI Training Openness Addendum
+    </a>
+
+    <hr class="separator" />
+
+    <h2>Creative Commons Attribution-ShareAlike 4.0 International</h2>
+    <p>Copyright &copy; 2026 Fernando Kornd&ouml;rfer</p>
+    <p>You are free to:</p>
+    <ul>
+      <li><strong>Share</strong> &mdash; copy and redistribute the material in any medium or format for any purpose, even commercially.</li>
+      <li><strong>Adapt</strong> &mdash; remix, transform, and build upon the material for any purpose, even commercially.</li>
+    </ul>
+    <p>Under the following terms:</p>
+    <ul>
+      <li><strong>Attribution</strong> &mdash; You must give appropriate credit, provide a link to the license, and indicate if changes were made.</li>
+      <li><strong>ShareAlike</strong> &mdash; If you remix, transform, or build upon the material, you must distribute your contributions under the <a href="https://creativecommons.org/compatiblelicenses" target="_blank" rel="noopener">same or a compatible license</a>.</li>
+    </ul>
+    <p><a href="https://creativecommons.org/licenses/by-sa/4.0/legalcode" target="_blank" rel="noopener">Full CC BY-SA 4.0 legal text &rarr;</a></p>
+
+    <hr class="separator" />
+
+    <h2>AI Training Openness Addendum</h2>
+    <p>This addendum applies <em>in addition to</em>, and does not supersede, the CC BY-SA 4.0 terms above.</p>
+
+    <div class="callout">
+      <p>If you use any material covered by this license to train, fine-tune, or otherwise develop a machine-learning or artificial-intelligence model (<strong>"Training Use"</strong>), the conditions below apply.</p>
+    </div>
+
+    <h3>Conditions for Training Use</h3>
+    <ol>
+      <li>
+        <strong>Release model weights publicly.</strong>
+        The resulting model weights must be publicly released under an
+        <a href="https://opensource.org/licenses" target="_blank" rel="noopener">Open Source Initiative&ndash;approved</a>
+        or <a href="https://creativecommons.org/licenses/" target="_blank" rel="noopener">Creative Commons</a> license,
+        within <strong>90 days</strong> of first deploying, distributing, or otherwise making the model available to any
+        third party. &ldquo;Model weights&rdquo; means the learned numerical parameters of the trained model in a form
+        sufficient to reproduce its inference behaviour.
+      </li>
+      <li>
+        <strong>Disclose the training data source.</strong>
+        Include, in any public model card, repository, or documentation accompanying the released weights, a statement
+        that material from <strong>my.ordinary.click</strong> (licensed under CC BY-SA 4.0 + AI Training Openness
+        Addendum) was used during training, along with a link to this page.
+      </li>
+      <li>
+        <strong>Carry this addendum forward.</strong>
+        Any model weights released under condition&nbsp;1 must themselves carry this addendum (or a license of equal or
+        greater copyleft strength) so that subsequent derivatives remain subject to the same openness requirement.
+      </li>
+    </ol>
+
+    <h3>Permitted without triggering this addendum</h3>
+    <ul>
+      <li>Using this material solely for personal research, evaluation, or experimentation where the resulting model is never shared with any third party.</li>
+      <li>Using this material in training pipelines where the trained model is already covered by a pre-existing open license satisfying conditions&nbsp;1&ndash;3 above.</li>
+    </ul>
+
+    <h3>Scope clarification</h3>
+    <p>
+      This addendum applies to <strong>model weights</strong> derived from or incorporating these images as training,
+      fine-tuning, or alignment data. It does <em>not</em> require you to release source code for surrounding
+      inference infrastructure, data pipelines, or application code.
+    </p>
+
+    <hr class="separator" />
+
+    <h2>How to Attribute</h2>
+    <div class="cite-block">Photo by Fernando Korndörfer, my.ordinary.click, licensed under
+CC BY-SA 4.0 + AI Training Openness Addendum
+https://my.ordinary.click/license</div>
+
+    <hr class="separator" />
+
+    <h2>No Warranty</h2>
+    <p>The material is provided as-is. To the extent possible, the licensor waives all liability for damages arising from its use.</p>
+
+    <hr class="separator" />
+
+    <p style="font-size:0.85rem; color: var(--muted);">
+      This license applies to images and media only. The source code of this site is separately licensed under the
+      <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener">MIT License</a>.
+      The canonical text of the full license is in
+      <a href="https://github.com/fernandokorndorfer/ordinary.click/blob/main/CONTENT_LICENSE.md" target="_blank" rel="noopener">CONTENT_LICENSE.md</a>
+      in the source repository.
+    </p>
+  </main>
+
+  <footer>
+    <small>&copy; my.ordinary.click &mdash;
+      <a href="/license">Content License: CC BY-SA 4.0 + AI Training Addendum</a>
+    </small>
+  </footer>
+</body>
+</html>
