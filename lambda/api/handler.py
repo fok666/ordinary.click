@@ -86,6 +86,9 @@ def _response(status: int, body: Any, *, cache_seconds: int = 0) -> dict:
         "headers": {
             "content-type": "application/json",
             "cache-control": f"public, max-age={cache_seconds}" if cache_seconds else "no-store",
+            "access-control-allow-origin": "*",
+            "access-control-allow-headers": "content-type, authorization",
+            "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
         },
         "body": json.dumps(body, separators=(",", ":")),
     }
@@ -427,6 +430,10 @@ def _route(method: str, path: str, body: dict | None) -> dict:
     if not parts:
         return _response(404, {"error": "not found"})
 
+    # Handle CORS preflight for any route.
+    if method == "OPTIONS":
+        return _response(204, "")
+
     if method in ("GET", "HEAD"):
         if parts == ["health"]:
             return _response(200, {"status": "ok"})
@@ -458,8 +465,6 @@ def _route(method: str, path: str, body: dict | None) -> dict:
             return _delete_image(unquote(admin[1]), unquote(admin[3]))
         return _response(404, {"error": "not found"})
 
-    if method == "OPTIONS":
-        return _response(204, {})
     return _response(405, {"error": "method not allowed"})
 
 

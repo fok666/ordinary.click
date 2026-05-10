@@ -5,7 +5,7 @@ Serverless personal photo gallery on AWS. Scale-to-zero: CloudFront → S3 + API
 ## Tech Stack
 
 - **Infrastructure**: Terraform >= 1.6.0, AWS provider ~> 5.60
-- **Backend**: Python 3.12 on Lambda (ARM64), Pillow 10.4.0 for image processing
+- **Backend**: Python 3.12 on Lambda (ARM64), Pillow 12.2.0 for image processing
 - **Frontend**: Vanilla ES6+ JavaScript, Leaflet 1.9.4 (CDN), no bundler
 - **Auth**: Cognito with PKCE authorization code flow, JWTs validated at API Gateway
 - **CI/CD**: GitHub Actions with OIDC federation (no long-lived AWS keys)
