@@ -91,16 +91,40 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .1px; 
   max-width: var(--maxw);
   margin: 0 auto;
   padding: .75rem 1.5rem;
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: 1rem 1.5rem;
+  position: relative;
+  display: flex;
+  justify-content: center;
 }
+.site-brand { text-align: center; }
 .site-brand h1 { margin: 0; font-size: 1.35rem; }
 .site-brand h1 a { color: var(--fg); }
 .site-brand .tagline { margin: .1rem 0 0; color: var(--muted); font-size: .85rem; }
 
-.site-nav { display: flex; gap: .25rem; flex-wrap: wrap; }
+/* Collapsible left rail (native <details>, no JS) */
+.side-nav {
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  box-shadow: var(--shadow-sm);
+}
+.side-nav summary {
+  list-style: none;
+  cursor: pointer;
+  padding: .5rem .75rem;
+  color: var(--muted);
+  font-size: 1.1rem;
+  user-select: none;
+}
+.side-nav summary::-webkit-details-marker { display: none; }
+.side-nav summary:hover { color: var(--fg); }
+
+.site-nav { display: flex; flex-direction: column; gap: .25rem; padding: 0 .5rem .6rem; }
 .site-nav a {
   color: var(--muted);
   font-size: .95rem;
@@ -111,7 +135,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .1px; 
 .site-nav a:hover { color: var(--fg); background: var(--surface-2); }
 .site-nav a.active { color: var(--accent); background: var(--surface-2); }
 
-.site-actions { display: flex; align-items: center; gap: .5rem; }
+.site-actions {
+  display: flex; align-items: center; gap: .5rem;
+  position: absolute; right: 1.5rem; top: 50%; transform: translateY(-50%);
+}
 .auth-nav { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .auth-nav .who { color: var(--muted); font-size: .85rem; }
 
@@ -474,8 +501,8 @@ input[type="file"] { color: var(--muted); }
 
 /* --- Responsive ----------------------------------------------------------- */
 @media (max-width: 760px) {
-  .site-header-inner { grid-template-columns: 1fr auto; row-gap: .5rem; }
-  .site-nav { grid-column: 1 / -1; order: 3; }
+  .site-header-inner { justify-content: flex-start; }
+  .site-brand { text-align: left; }
   .site-brand .tagline { display: none; }
   main { padding: 1.5rem 1rem 2.5rem; }
   .photo-grid { columns: 2 150px; column-gap: .5rem; }
