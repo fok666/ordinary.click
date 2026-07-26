@@ -25,6 +25,7 @@ Serverless personal photo gallery on AWS. Scale-to-zero: CloudFront → S3 + API
 
 ```bash
 # Infrastructure
+source scripts/aws-credentials.sh
 cd terraform && terraform init && terraform apply
 
 # Lambda processor dependencies (auto-run by Terraform local-exec)

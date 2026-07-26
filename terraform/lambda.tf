@@ -60,23 +60,24 @@ data "aws_iam_policy_document" "api_inline" {
     ]
     resources = [
       "${aws_s3_bucket.images.arn}/originals/*",
-      "${aws_s3_bucket.images.arn}/categories/*",
+      "${aws_s3_bucket.images.arn}/display/*",
       "${aws_s3_bucket.images.arn}/thumbs/*",
     ]
   }
 
   statement {
-    sid    = "ImageMetadata"
+    sid    = "CatalogMetadata"
     effect = "Allow"
     actions = [
       "dynamodb:GetItem",
       "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
       "dynamodb:DeleteItem",
       "dynamodb:Query",
       "dynamodb:BatchGetItem",
       "dynamodb:Scan"
     ]
-    resources = [aws_dynamodb_table.images.arn]
+    resources = [aws_dynamodb_table.catalog.arn]
   }
 }
 
@@ -112,7 +113,7 @@ resource "aws_lambda_function" "api" {
       COGNITO_DOMAIN    = local.cognito_hosted_domain
       COGNITO_CLIENT_ID = aws_cognito_user_pool_client.site.id
       COGNITO_REGION    = var.aws_region
-      METADATA_TABLE    = aws_dynamodb_table.images.name
+      CATALOG_TABLE     = aws_dynamodb_table.catalog.name
       LOG_LEVEL         = "INFO"
     }
   }
@@ -191,19 +192,19 @@ data "aws_iam_policy_document" "processor_inline" {
       "s3:PutObject",
     ]
     resources = [
-      "${aws_s3_bucket.images.arn}/categories/*",
+      "${aws_s3_bucket.images.arn}/display/*",
       "${aws_s3_bucket.images.arn}/thumbs/*",
     ]
   }
 
   statement {
-    sid    = "WriteImageMetadata"
+    sid    = "WriteCatalogMetadata"
     effect = "Allow"
     actions = [
       "dynamodb:PutItem",
       "dynamodb:UpdateItem",
     ]
-    resources = [aws_dynamodb_table.images.arn]
+    resources = [aws_dynamodb_table.catalog.arn]
   }
 }
 
@@ -234,7 +235,7 @@ resource "aws_lambda_function" "processor" {
   environment {
     variables = {
       IMAGE_BUCKET   = aws_s3_bucket.images.bucket
-      METADATA_TABLE = aws_dynamodb_table.images.name
+      CATALOG_TABLE  = aws_dynamodb_table.catalog.name
       DISPLAY_MAX_PX = "2048"
       THUMB_MAX_PX   = "400"
       JPEG_QUALITY   = "85"

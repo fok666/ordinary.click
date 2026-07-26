@@ -76,8 +76,8 @@ resource "aws_cloudfront_distribution" "site" {
 
   # --- Images: long cache, no query strings --------------------------------
   # Public URL prefix is /images/* but the S3 bucket lays files out under
-  # categories/<category>/<file>. A viewer-request CloudFront Function
-  # rewrites /images/... -> /categories/... before the S3 lookup.
+  # display/<id>.<ext>. A viewer-request CloudFront Function rewrites
+  # /images/... -> /display/... before the S3 lookup.
   ordered_cache_behavior {
     path_pattern           = "/images/*"
     target_origin_id       = "s3-images"
@@ -112,7 +112,7 @@ resource "aws_cloudfront_distribution" "site" {
   }
 
   # --- Thumbnails: long cache, served straight from the images bucket -------
-  # Bucket key is `thumbs/<category>/<file>` so no rewrite is needed.
+  # Bucket key is `thumbs/<id>.<ext>` so no rewrite is needed.
   ordered_cache_behavior {
     path_pattern           = "/thumbs/*"
     target_origin_id       = "s3-images"
@@ -153,18 +153,18 @@ resource "aws_cloudfront_distribution" "site" {
   }
 }
 
-# Rewrites /images/<...> to /categories/<...> at the edge so the public URL
-# space stays clean while the bucket layout uses categories/ as the prefix.
+# Rewrites /images/<...> to /display/<...> at the edge so the public URL
+# space stays clean while the bucket layout uses display/ as the prefix.
 resource "aws_cloudfront_function" "images_rewrite" {
   name    = "${local.project}-images-rewrite"
   runtime = "cloudfront-js-2.0"
-  comment = "Rewrite /images/* to /categories/* for the s3-images origin"
+  comment = "Rewrite /images/* to /display/* for the s3-images origin"
   publish = true
   code    = <<-EOT
     function handler(event) {
       var req = event.request;
       if (req.uri.indexOf("/images/") === 0) {
-        req.uri = "/categories/" + req.uri.substring("/images/".length);
+        req.uri = "/display/" + req.uri.substring("/images/".length);
       }
       return req;
     }
