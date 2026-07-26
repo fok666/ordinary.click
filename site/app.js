@@ -767,14 +767,19 @@ async function renderCategories() {
   try {
     const cat = await getCatalog(true);
     const admin = isLoggedIn();
+    const collections = admin ? cat.collections : [];
     const cards = cat.categories.map((c) => categoryCard(c, admin)).join("");
     render(`
       <div class="page-head"><h2>Categories</h2><p>${cat.categories.length
         ? "Overlapping themes — a photo can appear in several." : "No categories yet."}</p></div>
+      ${admin ? uploadPanelHtml([], "", collections) : ""}
       ${cat.categories.length ? `<div class="card-grid">${cards}</div>`
-        : `<section class="empty"><p>Upload a photo and tag it to create a category.</p></section>`}
+        : `<section class="empty"><p>${admin
+            ? "Upload a photo above and tag it to create your first category."
+            : "No categories yet."}</p></section>`}
     `);
     if (admin) {
+      await wireUploadPanel([], () => renderCategories());
       document.querySelectorAll(".cat-rename").forEach((btn) => btn.addEventListener("click", async () => {
         const name = btn.dataset.name;
         const newName = prompt(`Rename category "${name}" to:`, name);
