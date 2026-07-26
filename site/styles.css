@@ -261,7 +261,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
 .cover-card .label .count { font-size: .85rem; opacity: .85; }
 .card-admin {
   position: absolute; top: .5rem; right: .5rem;
-  display: flex; gap: .3rem; opacity: 0; transition: opacity .15s;
+  display: flex; gap: .3rem; opacity: .75; transition: opacity .15s;
 }
 .cover-card:hover .card-admin, .card-admin:focus-within { opacity: 1; }
 .card-admin button {
@@ -296,7 +296,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
 }
 .photo-actions {
   position: absolute; top: .4rem; right: .4rem;
-  display: flex; gap: .3rem; opacity: 0; transition: opacity .15s;
+  display: flex; gap: .3rem; opacity: .75; transition: opacity .15s;
 }
 .photo-item:hover .photo-actions, .photo-actions:focus-within { opacity: 1; }
 .photo-actions button {
