@@ -1019,6 +1019,11 @@ function route() {
 window.addEventListener("hashchange", route);
 
 (async function main() {
+  const sideNav = document.getElementById("side-nav");
+  if (matchMedia("(max-width: 760px)").matches) sideNav.open = false;
+  sideNav.addEventListener("click", (e) => {
+    if (e.target.matches("a") && matchMedia("(max-width: 760px)").matches) sideNav.open = false;
+  });
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   applyThemeButton();
   await handleAuthRedirect();

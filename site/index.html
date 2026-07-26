@@ -24,20 +24,25 @@
     <div class="site-header-inner">
       <div class="site-brand">
         <h1><a href="#/">my.ordinary.click</a></h1>
+        <p class="tagline" style="font-style: italic;">What one fool can do, another can. (Ancient Simian Proverb.)</p>
         <p class="tagline">A personal collection of ordinary, everyday moments.</p>
       </div>
-      <nav class="site-nav" id="site-nav">
-        <a href="#/" data-route="/">Home</a>
-        <a href="#/categories" data-route="/categories">Categories</a>
-        <a href="#/collections" data-route="/collections">Collections</a>
-        <a href="#/map" data-route="/map">Map</a>
-      </nav>
       <div class="site-actions">
         <button id="theme-toggle" class="icon-btn" title="Toggle light/dark" aria-label="Toggle theme"></button>
         <nav id="auth-nav" class="auth-nav"></nav>
       </div>
     </div>
   </header>
+
+  <details class="side-nav" id="side-nav" open>
+    <summary aria-label="Toggle menu">☰</summary>
+    <nav class="site-nav" id="site-nav">
+      <a href="#/" data-route="/">Home</a>
+      <a href="#/categories" data-route="/categories">Categories</a>
+      <a href="#/collections" data-route="/collections">Collections</a>
+      <a href="#/map" data-route="/map">Map</a>
+    </nav>
+  </details>
 
   <main id="app">
     <section class="loading"><p>Loading…</p></section>
