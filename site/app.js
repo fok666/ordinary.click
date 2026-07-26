@@ -730,11 +730,11 @@ async function renderCover() {
           : `Nothing here yet. Sign in to upload your first photos.`}</p>
       </section>
       ${heroHtml}
-      <div class="quick-links">
+      <!--div class="quick-links">
         <a class="quick-link" href="#/categories"><span class="ql-icon">🏷️</span><strong>Categories</strong><span>Browse by overlapping themes</span></a>
         <a class="quick-link" href="#/collections"><span class="ql-icon">◆</span><strong>Collections</strong><span>Curated sets that belong together</span></a>
         <a class="quick-link" href="#/map"><span class="ql-icon">🗺️</span><strong>Map</strong><span>Explore geo-tagged photos</span></a>
-      </div>
+      </div-->
       ${featured ? `<div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div>` : ""}
     `);
   } catch (err) {
