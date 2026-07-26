@@ -723,13 +723,13 @@ async function renderCover() {
     const featured = cat.collections.slice(0, 4).map(collectionCard).join("");
 
     render(`
-      ${heroHtml}
       <section class="cover-intro">
         <h2>Welcome</h2>
         <p>${t.photos
           ? `A quiet archive of <strong>${t.photos}</strong> photo${t.photos === 1 ? "" : "s"}, across <strong>${t.categories}</strong> categor${t.categories === 1 ? "y" : "ies"} and <strong>${t.collections}</strong> collection${t.collections === 1 ? "" : "s"}.`
           : `Nothing here yet. Sign in to upload your first photos.`}</p>
       </section>
+      ${heroHtml}
       <div class="quick-links">
         <a class="quick-link" href="#/categories"><span class="ql-icon">🏷️</span><strong>Categories</strong><span>Browse by overlapping themes</span></a>
         <a class="quick-link" href="#/collections"><span class="ql-icon">◆</span><strong>Collections</strong><span>Curated sets that belong together</span></a>
@@ -1019,11 +1019,6 @@ function route() {
 window.addEventListener("hashchange", route);
 
 (async function main() {
-  const sideNav = document.getElementById("side-nav");
-  if (matchMedia("(max-width: 760px)").matches) sideNav.open = false;
-  sideNav.addEventListener("click", (e) => {
-    if (e.target.matches("a") && matchMedia("(max-width: 760px)").matches) sideNav.open = false;
-  });
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   applyThemeButton();
   await handleAuthRedirect();
