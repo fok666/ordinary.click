@@ -1,14 +1,16 @@
 """Image processor Lambda.
 
 Triggered by S3 ObjectCreated:* events on keys under `originals/`.
-For each event:
+The tag-based data model stores each photo once under a content-hash id:
 
-    Read    s3://BUCKET/originals/<category>/<file>
-    Produce s3://BUCKET/categories/<category>/<file>   (display, max 2048px long edge)
-    Produce s3://BUCKET/thumbs/<category>/<file>       (thumb,   max  400px long edge)
+    Read    s3://BUCKET/originals/<id>.<ext>
+    Produce s3://BUCKET/display/<id>.<ext>    (display, max 2048px long edge)
+    Produce s3://BUCKET/thumbs/<id>.<ext>     (thumb,   max  400px long edge)
 
 The original is left untouched. EXIF orientation is honoured before resizing,
-then dropped (we strip metadata for the public derivatives).
+then dropped (we strip metadata for the public derivatives). GPS coordinates
+are extracted before stripping and stored on the photo item. Finally the
+photo item is marked `ready` with its intrinsic dimensions.
 """
 
 from __future__ import annotations
@@ -28,14 +30,16 @@ LOG = logging.getLogger()
 LOG.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 BUCKET = os.environ["IMAGE_BUCKET"]
-METADATA_TABLE = os.environ.get("METADATA_TABLE", "")
+CATALOG_TABLE = os.environ.get("CATALOG_TABLE", "")
 DISPLAY_MAX = int(os.environ.get("DISPLAY_MAX_PX", "2048"))
 THUMB_MAX = int(os.environ.get("THUMB_MAX_PX", "400"))
 JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", "85"))
 
 ORIGINALS_PREFIX = "originals/"
-CATEGORIES_PREFIX = "categories/"
+DISPLAY_PREFIX = "display/"
 THUMBS_PREFIX = "thumbs/"
+
+PHOTO_PK = "PHOTO"
 
 # Pillow format -> (encoder name, content type, save kwargs)
 _FORMAT_MAP = {
@@ -46,7 +50,7 @@ _FORMAT_MAP = {
 }
 
 _s3 = boto3.client("s3")
-_ddb = boto3.resource("dynamodb").Table(METADATA_TABLE) if METADATA_TABLE else None
+_ddb = boto3.resource("dynamodb").Table(CATALOG_TABLE) if CATALOG_TABLE else None
 
 
 def _extract_gps(img: Image.Image) -> tuple[float, float] | None:
@@ -88,25 +92,41 @@ def _extract_gps(img: Image.Image) -> tuple[float, float] | None:
         return None
 
 
-def _store_gps_metadata(category: str, filename: str, lat: float, lon: float) -> None:
-    """Store GPS coordinates in DynamoDB (only if no metadata exists yet)."""
+def _mark_ready(photo_id: str, ext: str, width: int, height: int,
+                gps: tuple[float, float] | None) -> None:
+    """Mark the photo item ready and record dimensions (+ GPS if present)."""
     if not _ddb:
         return
+    sets = [
+        "#ready = :true",
+        "width = :w",
+        "height = :h",
+        "ext = if_not_exists(ext, :ext)",
+        "updatedAt = :ts",
+    ]
+    vals = {
+        ":true": True,
+        ":w": int(width),
+        ":h": int(height),
+        ":ext": ext,
+        ":ts": int(time.time()),
+    }
+    if gps:
+        sets.append("latitude = if_not_exists(latitude, :lat)")
+        sets.append("longitude = if_not_exists(longitude, :lon)")
+        vals[":lat"] = Decimal(str(round(gps[0], 6)))
+        vals[":lon"] = Decimal(str(round(gps[1], 6)))
     try:
         _ddb.update_item(
-            Key={"category": category, "filename": filename},
-            UpdateExpression="SET latitude = if_not_exists(latitude, :lat), "
-                            "longitude = if_not_exists(longitude, :lon), "
-                            "updatedAt = :ts",
-            ExpressionAttributeValues={
-                ":lat": Decimal(str(round(lat, 6))),
-                ":lon": Decimal(str(round(lon, 6))),
-                ":ts": int(time.time()),
-            },
+            Key={"pk": PHOTO_PK, "sk": photo_id},
+            UpdateExpression="SET " + ", ".join(sets),
+            ExpressionAttributeNames={"#ready": "ready"},
+            ExpressionAttributeValues=vals,
         )
-        LOG.info("stored GPS metadata for %s/%s: lat=%s lon=%s", category, filename, lat, lon)
+        LOG.info("marked %s ready (%dx%d)%s", photo_id, width, height,
+                 " with GPS" if gps else "")
     except Exception:
-        LOG.exception("failed to store GPS metadata for %s/%s", category, filename)
+        LOG.exception("failed to mark %s ready", photo_id)
 
 
 def _resize(img: Image.Image, max_edge: int) -> Image.Image:
@@ -137,11 +157,11 @@ def _process_one(key: str) -> None:
         return
 
     rel = key[len(ORIGINALS_PREFIX):]
-    if "/" not in rel:
-        LOG.warning("skipping %s: expected originals/<category>/<file>", key)
+    if "/" in rel or "." not in rel:
+        LOG.warning("skipping %s: expected originals/<id>.<ext>", key)
         return
-    category, _, filename = rel.partition("/")
-    if not category or not filename or "/" in filename:
+    photo_id, _, ext = rel.rpartition(".")
+    if not photo_id or not ext:
         LOG.warning("skipping %s: invalid layout", key)
         return
 
@@ -152,10 +172,9 @@ def _process_one(key: str) -> None:
 
     with Image.open(io.BytesIO(raw)) as src:
         src.load()
-        # Extract GPS coordinates before stripping EXIF.
         gps = _extract_gps(src)
-        # Honour EXIF orientation before resizing.
         oriented = ImageOps.exif_transpose(src)
+        width, height = oriented.size
         fmt = (src.format or "JPEG").upper()
         if fmt not in _FORMAT_MAP:
             fmt = "JPEG"
@@ -168,27 +187,22 @@ def _process_one(key: str) -> None:
 
     _s3.put_object(
         Bucket=BUCKET,
-        Key=f"{CATEGORIES_PREFIX}{category}/{filename}",
+        Key=f"{DISPLAY_PREFIX}{rel}",
         Body=display_bytes,
         ContentType=display_ct,
         CacheControl="public, max-age=31536000, immutable",
     )
     _s3.put_object(
         Bucket=BUCKET,
-        Key=f"{THUMBS_PREFIX}{category}/{filename}",
+        Key=f"{THUMBS_PREFIX}{rel}",
         Body=thumb_bytes,
         ContentType=thumb_ct,
         CacheControl="public, max-age=31536000, immutable",
     )
 
-    LOG.info(
-        "done %s/%s display=%dB thumb=%dB",
-        category, filename, len(display_bytes), len(thumb_bytes),
-    )
+    LOG.info("done %s display=%dB thumb=%dB", rel, len(display_bytes), len(thumb_bytes))
 
-    # Store extracted GPS coordinates in DynamoDB.
-    if gps:
-        _store_gps_metadata(category, filename, gps[0], gps[1])
+    _mark_ready(photo_id, ext, width, height, gps)
 
 
 def handler(event: dict, _context) -> dict:

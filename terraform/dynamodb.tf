@@ -1,20 +1,26 @@
 ################################################################################
-# DynamoDB table for image metadata (geo-tags, descriptions).
+# DynamoDB catalog table — single-table store for the tag-based model.
+#
+#   Photo       pk="PHOTO"       sk=<id>            (id = sha256 hex of bytes)
+#   Collection  pk="COLLECTION"  sk=<collectionId>
+#
+# All category membership (a string set), collection membership, descriptions
+# and geo-tags live here. S3 only holds the image bytes.
 ################################################################################
 
-resource "aws_dynamodb_table" "images" {
-  name         = "${local.project}-images"
+resource "aws_dynamodb_table" "catalog" {
+  name         = "${local.project}-catalog"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "category"
-  range_key    = "filename"
+  hash_key     = "pk"
+  range_key    = "sk"
 
   attribute {
-    name = "category"
+    name = "pk"
     type = "S"
   }
 
   attribute {
-    name = "filename"
+    name = "sk"
     type = "S"
   }
 

@@ -3,33 +3,44 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#171614" media="(prefers-color-scheme: dark)" />
   <title>my.ordinary.click — a personal image collection</title>
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin="" />
   <link rel="icon" href="data:," />
+  <script>
+    // Apply saved theme before first paint to avoid a flash.
+    try {
+      var t = localStorage.getItem("oc.theme");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
 </head>
 <body>
-  <div class="site-banner">
-    <div class="site-banner-inner">
-      <div>
-        <h1><a href="/">my.ordinary.click</a></h1>
-        <p class="tagline">My personal collection of unremarkable, ordinary moments.</p>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="site-brand">
+        <h1><a href="#/">my.ordinary.click</a></h1>
+        <p class="tagline">A personal collection of ordinary, everyday moments.</p>
       </div>
-      <nav class="site-nav">
-        <a href="#/">Home</a>
-        <a href="#/gallery">Gallery</a>
-        <a href="#/map">Map</a>
+      <nav class="site-nav" id="site-nav">
+        <a href="#/" data-route="/">Home</a>
+        <a href="#/categories" data-route="/categories">Categories</a>
+        <a href="#/collections" data-route="/collections">Collections</a>
+        <a href="#/map" data-route="/map">Map</a>
       </nav>
-      <nav id="auth-nav" class="auth-nav"></nav>
+      <div class="site-actions">
+        <button id="theme-toggle" class="icon-btn" title="Toggle light/dark" aria-label="Toggle theme"></button>
+        <nav id="auth-nav" class="auth-nav"></nav>
+      </div>
     </div>
-  </div>
+  </header>
 
   <main id="app">
-    <section id="intro">
-      <p>Loading categories…</p>
-    </section>
+    <section class="loading"><p>Loading…</p></section>
   </main>
 
   <div id="lightbox" class="lightbox" hidden>
@@ -40,27 +51,59 @@
     <div class="lightbox-meta" id="lightbox-meta"></div>
   </div>
 
-  <div id="meta-modal" class="meta-modal" hidden>
-    <div class="meta-modal-content">
-      <h3>Edit image metadata</h3>
+  <!-- Edit photo metadata -->
+  <div id="meta-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3>Edit photo</h3>
       <form id="meta-form">
-        <label>Description<br /><textarea id="meta-desc" rows="3" maxlength="2000"></textarea></label>
-        <div class="location-picker" id="meta-location-picker">
-          <div class="location-search-wrap">
-            <input type="text" class="location-search" placeholder="Search city or place…" autocomplete="off" />
-            <ul class="location-results"></ul>
-          </div>
-          <div class="location-coords">
-            <label>Lat<br /><input type="number" id="meta-lat" step="any" min="-90" max="90" placeholder="e.g. 47.38" /></label>
-            <label>Lng<br /><input type="number" id="meta-lng" step="any" min="-180" max="180" placeholder="e.g. 8.54" /></label>
-            <button type="button" class="location-map-btn" title="Pick on map">📍</button>
-          </div>
-          <div class="location-picker-map"></div>
-          <div class="recent-locations"></div>
+        <label class="field">Description
+          <textarea id="meta-desc" rows="3" maxlength="2000"></textarea>
+        </label>
+        <div class="field">
+          <span class="field-label">Categories</span>
+          <div class="chips-input" id="meta-categories"></div>
         </div>
-        <div class="meta-modal-actions">
-          <button type="submit" class="primary">Save</button>
+        <label class="field">Collection
+          <select id="meta-collection"></select>
+        </label>
+        <div class="field">
+          <span class="field-label">Location</span>
+          <div class="location-picker" id="meta-location-picker">
+            <div class="location-search-wrap">
+              <input type="text" class="location-search" placeholder="Search city or place…" autocomplete="off" />
+              <ul class="location-results"></ul>
+            </div>
+            <div class="location-coords">
+              <label>Lat<br /><input type="number" id="meta-lat" step="any" min="-90" max="90" placeholder="47.38" /></label>
+              <label>Lng<br /><input type="number" id="meta-lng" step="any" min="-180" max="180" placeholder="8.54" /></label>
+              <button type="button" class="location-map-btn icon-btn" title="Pick on map">📍</button>
+            </div>
+            <div class="location-picker-map"></div>
+            <div class="recent-locations"></div>
+          </div>
+        </div>
+        <div class="modal-actions">
           <button type="button" id="meta-cancel">Cancel</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create / edit collection -->
+  <div id="collection-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3 id="collection-modal-title">New collection</h3>
+      <form id="collection-form">
+        <label class="field">Title
+          <input type="text" id="collection-title" maxlength="120" required placeholder="e.g. Trip to Lisbon" />
+        </label>
+        <label class="field">Description
+          <textarea id="collection-desc" rows="3" maxlength="2000"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="collection-cancel">Cancel</button>
+          <button type="submit" class="primary">Save</button>
         </div>
       </form>
     </div>
