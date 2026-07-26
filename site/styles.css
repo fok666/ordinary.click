@@ -100,31 +100,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .1px; 
 .site-brand h1 a { color: var(--fg); }
 .site-brand .tagline { margin: .1rem 0 0; color: var(--muted); font-size: .85rem; }
 
-/* Collapsible left rail (native <details>, no JS) */
-.side-nav {
-  position: fixed;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 30;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 0;
-  border-radius: 0 var(--radius) var(--radius) 0;
-  box-shadow: var(--shadow-sm);
-}
-.side-nav summary {
-  list-style: none;
-  cursor: pointer;
-  padding: .5rem .75rem;
-  color: var(--muted);
-  font-size: 1.1rem;
-  user-select: none;
-}
-.side-nav summary::-webkit-details-marker { display: none; }
-.side-nav summary:hover { color: var(--fg); }
-
-.site-nav { display: flex; flex-direction: column; gap: .25rem; padding: 0 .5rem .6rem; }
+.site-nav { display: flex; flex-direction: column; gap: .25rem; align-self: start; padding: 2rem 0 0 1.5rem; }
 .site-nav a {
   color: var(--muted);
   font-size: .95rem;
@@ -143,11 +119,16 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .1px; 
 .auth-nav .who { color: var(--muted); font-size: .85rem; }
 
 /* --- Layout --------------------------------------------------------------- */
-main {
+.layout {
   max-width: var(--maxw);
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+}
+main {
   padding: 2rem 1.5rem 3rem;
   min-height: 60vh;
+  min-width: 0;
 }
 footer {
   max-width: var(--maxw);
@@ -201,15 +182,18 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
 /* --- Cover / home --------------------------------------------------------- */
 .cover-hero {
   position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 2rem;
   border-radius: var(--radius);
   overflow: hidden;
-  margin-bottom: 2rem;
   box-shadow: var(--shadow-sm);
 }
 .cover-hero img {
-  width: 100%;
   height: clamp(240px, 46vw, 460px);
-  object-fit: cover;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
   display: block;
 }
 .cover-hero-overlay {
@@ -504,6 +488,8 @@ input[type="file"] { color: var(--muted); }
   .site-header-inner { justify-content: flex-start; }
   .site-brand { text-align: left; }
   .site-brand .tagline { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  .site-nav { flex-direction: row; flex-wrap: wrap; padding: 1rem 1rem 0; }
   main { padding: 1.5rem 1rem 2.5rem; }
   .photo-grid { columns: 2 150px; column-gap: .5rem; }
   .photo-item { margin-bottom: .5rem; }
