@@ -295,6 +295,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
   background: var(--surface-2);
   box-shadow: var(--shadow-sm);
 }
+.photo-frame { position: relative; display: block; }
 .photo-item img {
   width: 100%; display: block; cursor: zoom-in;
   transition: transform .3s ease;
@@ -323,6 +324,76 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
   color: #eee; font-size: .78rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   pointer-events: none;
+}
+
+/* --- Paintable tags (admin grids) ----------------------------------------- */
+.photo-select {
+  position: absolute; top: .4rem; left: .4rem;
+  width: 1.7rem; height: 1.7rem; padding: 0; justify-content: center;
+  border-radius: 999px; border: 1.5px solid rgba(255, 255, 255, .85);
+  background: rgba(0, 0, 0, .3); color: rgba(255, 255, 255, .45);
+  font-size: .85rem; line-height: 1; opacity: .85; transition: opacity .15s;
+}
+.photo-item:hover .photo-select { opacity: 1; }
+.photo-select:hover { background: rgba(0, 0, 0, .6); color: #fff; border-color: #fff; }
+.photo-item.selected { outline: 3px solid var(--accent); outline-offset: -3px; }
+.photo-item.selected .photo-select {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-contrast);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9); opacity: 1;
+}
+
+.tile-tags {
+  display: flex; flex-wrap: wrap; gap: .25rem;
+  padding: .35rem .4rem; background: var(--surface);
+}
+.tile-tag {
+  display: inline-flex; align-items: center; gap: .1rem;
+  padding: .05rem .2rem .05rem .45rem;
+  font-size: .72rem; line-height: 1.55; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+}
+.tile-tag:hover { border-color: var(--accent); color: var(--accent); }
+.tile-tag-del {
+  border: 0; background: transparent; padding: 0 .15rem; margin: 0;
+  width: auto; height: auto; line-height: 1; font-size: .8rem; color: var(--muted);
+}
+.tile-tag-del:hover { color: var(--danger); background: transparent; }
+.tile-tags-empty { font-size: .72rem; color: var(--muted); font-style: italic; }
+
+.tag-bar {
+  position: sticky; top: calc(var(--header-h, 5.5rem) + .4rem); z-index: 30;
+  margin: 0 0 1rem; padding: .6rem .75rem;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: saturate(1.2) blur(10px);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.tag-bar[hidden] { display: none; }
+.tag-bar.busy { opacity: .55; pointer-events: none; }
+.tag-bar-head {
+  display: flex; align-items: center; gap: .5rem;
+  margin-bottom: .5rem; font-size: .85rem; color: var(--muted);
+}
+.tag-bar-count { flex: 1; }
+.tag-bar-head button { padding: .15rem .6rem; font-size: .8rem; }
+.tag-palette { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.tag-palette.idle { opacity: .55; }
+.tag-chip {
+  padding: .18rem .7rem; font-size: .82rem; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--fg);
+}
+.tag-chip.on, .tag-chip.on:hover {
+  background: var(--accent); border-color: var(--accent); color: var(--accent-contrast);
+}
+/* half-painted: only some of the selection carries this tag */
+.tag-chip.partial, .tag-chip.partial:hover {
+  border: 2px solid var(--accent); padding: .1rem .62rem; font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  color: var(--accent);
+}
+.tag-palette .tag-new {
+  flex: 0 1 13ch; width: 13ch; margin: 0;
+  padding: .18rem .7rem; font-size: .82rem; border-radius: 999px;
 }
 
 /* --- Chips ---------------------------------------------------------------- */
@@ -397,6 +468,13 @@ input[type="file"] { color: var(--muted); }
   box-shadow: none;
 }
 .chips-input input:focus { box-shadow: none; }
+.chip-suggest { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .35rem; }
+.chip-suggest:empty { display: none; }
+.chip.add {
+  padding: .1rem .55rem; font-size: .75rem; border-radius: 999px;
+  border: 1px dashed var(--border-strong); background: transparent; color: var(--muted);
+}
+.chip.add:hover { border-style: solid; border-color: var(--accent); color: var(--accent); }
 
 /* --- Lightbox ------------------------------------------------------------- */
 .lightbox {
