@@ -290,6 +290,16 @@ function createChipsInput(container, initial = [], suggestions = []) {
   datalist.id = listId;
   datalist.innerHTML = suggestions.map((s) => `<option value="${esc(s)}"></option>`).join("");
 
+  // One-click row of known categories not yet on this photo.
+  container.parentElement.querySelectorAll(".chip-suggest").forEach((n) => n.remove());
+  const suggestRow = document.createElement("div");
+  suggestRow.className = "chip-suggest";
+  container.after(suggestRow);
+  suggestRow.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (btn) add(btn.dataset.name);
+  });
+
   function render() {
     container.querySelectorAll(".chip").forEach((n) => n.remove());
     chips.forEach((name, i) => {
@@ -299,6 +309,10 @@ function createChipsInput(container, initial = [], suggestions = []) {
       el.querySelector("button").addEventListener("click", () => { chips.splice(i, 1); seen.delete(name.toLowerCase()); render(); });
       container.insertBefore(el, input);
     });
+    const free = suggestions.filter((s) => !seen.has(s.toLowerCase()));
+    suggestRow.innerHTML = free.length
+      ? free.map((s) => `<button type="button" class="chip add" data-name="${esc(s)}">＋ ${esc(s)}</button>`).join("")
+      : "";
   }
   function add(raw) {
     const name = (raw || "").trim();
@@ -310,6 +324,7 @@ function createChipsInput(container, initial = [], suggestions = []) {
   container.appendChild(input);
   container.appendChild(datalist);
   initial.forEach(add);
+  render();
 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(input.value); input.value = ""; }
@@ -581,6 +596,13 @@ function markActiveNav(route) {
   });
 }
 
+function tileTagsHtml(photo) {
+  const cats = photo.categories || [];
+  if (!cats.length) return `<span class="tile-tags-empty">untagged</span>`;
+  return cats.map((c) =>
+    `<span class="tile-tag" data-name="${esc(c)}" title="Select every photo tagged “${esc(c)}”">${esc(c)}<button type="button" class="tile-tag-del" aria-label="Remove ${esc(c)}">×</button></span>`).join("");
+}
+
 function photoTile(photo, i, admin) {
   if (!photo.ready) {
     return `<div class="photo-item pending"><div class="pending-badge">processing…</div></div>`;
@@ -589,19 +611,28 @@ function photoTile(photo, i, admin) {
     ? esc(photo.description)
     : (photo.latitude != null ? `📍 ${Number(photo.latitude).toFixed(2)}, ${Number(photo.longitude).toFixed(2)}` : "");
   return `
-    <div class="photo-item" data-index="${i}">
-      <img loading="lazy" src="${esc(photo.thumb || photo.url)}" alt="${esc(photo.filename)}"
-           data-url="${esc(photo.url)}"
-           onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src=this.dataset.url;}" />
-      ${admin ? `<div class="photo-actions">
-        <button class="edit-photo" data-index="${i}" title="Edit">✏️</button>
-        <button class="delete-photo danger" data-id="${esc(photo.id)}" title="Delete">🗑</button>
-      </div>` : ""}
-      ${caption ? `<div class="photo-caption">${caption}</div>` : ""}
+    <div class="photo-item" data-index="${i}" data-id="${esc(photo.id)}">
+      <div class="photo-frame">
+        <img loading="lazy" src="${esc(photo.thumb || photo.url)}" alt="${esc(photo.filename)}"
+             data-url="${esc(photo.url)}"
+             onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src=this.dataset.url;}" />
+        ${admin ? `<button class="photo-select" data-index="${i}" title="Select (shift-click for a range)" aria-pressed="false">✓</button>
+        <div class="photo-actions">
+          <button class="edit-photo" data-index="${i}" title="Edit">✏️</button>
+          <button class="delete-photo danger" data-id="${esc(photo.id)}" title="Delete">🗑</button>
+        </div>` : ""}
+        ${caption ? `<div class="photo-caption">${caption}</div>` : ""}
+      </div>
+      ${admin ? `<div class="tile-tags">${tileTagsHtml(photo)}</div>` : ""}
     </div>`;
 }
 
-function wirePhotoGrid(photos, admin, onChanged) {
+// Sticky palette that sits above an admin photo grid; filled in by mountPhotoGrid.
+const TAG_BAR_HTML = `<div id="tag-bar" class="tag-bar" hidden></div>`;
+
+// Wire the grid: lightbox for everyone, plus (admin) selection and a tri-state
+// tag palette — select photos, click a tag to paint it on or scrub it off.
+async function mountPhotoGrid(photos, admin, onChanged) {
   document.querySelectorAll(".photo-item img").forEach((node) => {
     node.addEventListener("click", () => {
       const idx = parseInt(node.closest(".photo-item").dataset.index, 10);
@@ -609,6 +640,7 @@ function wirePhotoGrid(photos, admin, onChanged) {
     });
   });
   if (!admin) return;
+
   document.querySelectorAll(".edit-photo").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -626,17 +658,149 @@ function wirePhotoGrid(photos, admin, onChanged) {
       } catch (err) { alert(`Delete failed: ${err.message}`); }
     });
   });
+
+  const grid = document.querySelector(".photo-grid");
+  const bar = document.getElementById("tag-bar");
+  if (!grid || !bar) return;
+
+  const selected = new Set();
+  let anchor = null;
+  const ready = photos.filter((p) => p.ready);
+  const selectedPhotos = () => ready.filter((p) => selected.has(p.id));
+
+  const names = [...new Set([...(await safeCategoryNames()), ...photos.flatMap((p) => p.categories || [])])]
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const chipHtml = (n) => `<button type="button" class="tag-chip off" data-name="${esc(n)}">${esc(n)}</button>`;
+
+  bar.hidden = false;
+  bar.innerHTML = `
+    <div class="tag-bar-head">
+      <span class="tag-bar-count"></span>
+      <button type="button" class="ghost" data-act="all">Select all</button>
+      <button type="button" class="ghost" data-act="none">Clear</button>
+    </div>
+    <div class="tag-palette">
+      ${names.map(chipHtml).join("")}
+      <input type="text" class="tag-new" placeholder="+ new tag" aria-label="New tag" />
+    </div>`;
+  const tagNew = bar.querySelector(".tag-new");
+
+  function syncBar() {
+    const sel = selectedPhotos();
+    bar.querySelector(".tag-bar-count").textContent = sel.length
+      ? `${sel.length} photo${sel.length === 1 ? "" : "s"} selected`
+      : "Select photos, then click a tag to paint it on";
+    bar.querySelector(".tag-palette").classList.toggle("idle", !sel.length);
+    bar.querySelectorAll(".tag-chip").forEach((chip) => {
+      const n = sel.filter((p) => (p.categories || []).includes(chip.dataset.name)).length;
+      chip.className = `tag-chip ${!n ? "off" : n === sel.length ? "on" : "partial"}`;
+    });
+  }
+  function paintSelection() {
+    grid.querySelectorAll(".photo-item").forEach((el) => {
+      const on = selected.has(el.dataset.id);
+      el.classList.toggle("selected", on);
+      el.querySelector(".photo-select")?.setAttribute("aria-pressed", String(on));
+    });
+    syncBar();
+  }
+  function toggleAt(idx, range) {
+    const photo = photos[idx];
+    if (!photo?.ready) return;
+    if (range && anchor != null) {
+      const [a, b] = anchor < idx ? [anchor, idx] : [idx, anchor];
+      for (let i = a; i <= b; i++) if (photos[i]?.ready) selected.add(photos[i].id);
+    } else {
+      if (selected.has(photo.id)) selected.delete(photo.id); else selected.add(photo.id);
+      anchor = idx;
+    }
+    paintSelection();
+  }
+
+  // ponytail: one PUT per photo — a personal gallery never selects enough
+  // photos for a bulk endpoint to be worth the Lambda route.
+  async function paint(sel, name, add) {
+    bar.classList.add("busy");
+    try {
+      for (const p of sel) {
+        const cats = p.categories || [];
+        if (cats.includes(name) === add) continue;
+        const next = add ? [...cats, name].sort() : cats.filter((c) => c !== name);
+        await fetchAuthed(`/api/admin/photos/${encodeURIComponent(p.id)}`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ categories: next }),
+        });
+        p.categories = next;
+        const row = grid.querySelector(`.photo-item[data-id="${p.id}"] .tile-tags`);
+        if (row) row.innerHTML = tileTagsHtml(p);
+      }
+      invalidateCatalog();
+    } catch (err) {
+      alert(`Tag update failed: ${err.message}`);
+    } finally {
+      bar.classList.remove("busy");
+      syncBar();
+    }
+  }
+
+  bar.querySelector('[data-act="all"]').addEventListener("click", () => {
+    ready.forEach((p) => selected.add(p.id));
+    paintSelection();
+  });
+  bar.querySelector('[data-act="none"]').addEventListener("click", () => {
+    selected.clear(); anchor = null; paintSelection();
+  });
+  bar.querySelector(".tag-palette").addEventListener("click", (e) => {
+    const chip = e.target.closest(".tag-chip");
+    const sel = selectedPhotos();
+    if (chip && sel.length) paint(sel, chip.dataset.name, !chip.classList.contains("on"));
+  });
+  tagNew.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== ",") return;
+    e.preventDefault();
+    const name = tagNew.value.trim();
+    if (!_NAME_RE.test(name)) return;
+    tagNew.value = "";
+    if (!names.some((n) => n.toLowerCase() === name.toLowerCase())) {
+      names.push(name);
+      tagNew.insertAdjacentHTML("beforebegin", chipHtml(name));
+    }
+    const sel = selectedPhotos();
+    if (sel.length) paint(sel, name, true);
+  });
+
+  grid.addEventListener("click", (e) => {
+    const del = e.target.closest(".tile-tag-del");
+    if (del) {
+      const tag = del.closest(".tile-tag");
+      const photo = ready.find((p) => p.id === tag.closest(".photo-item").dataset.id);
+      if (photo) paint([photo], tag.dataset.name, false);
+      return;
+    }
+    const tag = e.target.closest(".tile-tag");
+    if (tag) {
+      ready.filter((p) => (p.categories || []).includes(tag.dataset.name)).forEach((p) => selected.add(p.id));
+      paintSelection();
+      return;
+    }
+    const box = e.target.closest(".photo-select");
+    if (box) toggleAt(parseInt(box.dataset.index, 10), e.shiftKey);
+  });
+
+  syncBar();
 }
 
-// Upload panel shared by category & collection pages.
+// Upload panel shared by category & collection pages — button + modal.
 function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
   return `
-    <section class="admin-panel">
+    <div class="page-actions"><button id="upload-open" class="primary">＋ Upload photos</button></div>
+    <div id="upload-modal" class="modal" hidden>
+      <div class="modal-card">
       <h3>Upload photos</h3>
       <form id="upload-form">
         <div class="upload-drop">
           <input type="file" id="upload-files" accept="image/*" multiple required />
-          <button type="submit" class="primary">Upload</button>
         </div>
         <div class="field">
           <span class="field-label">Categories</span>
@@ -664,12 +828,21 @@ function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
             <div class="recent-locations"></div>
           </div>
         </div>
+        <div class="modal-actions">
+          <button type="button" id="upload-cancel">Cancel</button>
+          <button type="submit" class="primary">Upload</button>
+        </div>
       </form>
       <ul id="upload-progress" class="progress"></ul>
-    </section>`;
+      </div>
+    </div>`;
 }
 
 async function wireUploadPanel(presetCategories, onDone) {
+  const modal = document.getElementById("upload-modal");
+  document.getElementById("upload-open").addEventListener("click", () => { modal.hidden = false; });
+  document.getElementById("upload-cancel").addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
   const knownCats = await safeCategoryNames();
   const chips = createChipsInput(document.getElementById("upload-categories"), presetCategories || [], knownCats);
   const picker = attachLocationPicker(
@@ -775,18 +948,23 @@ async function renderCategories() {
       ${admin ? uploadPanelHtml([], "", collections) : ""}
       ${cat.categories.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin
-            ? "Upload a photo above and tag it to create your first category."
+            ? "Upload a photo and tag it to create your first category."
             : "No categories yet."}</p></section>`}
     `);
     if (admin) {
       await wireUploadPanel([], () => renderCategories());
       document.querySelectorAll(".cat-rename").forEach((btn) => btn.addEventListener("click", async () => {
         const name = btn.dataset.name;
-        const newName = prompt(`Rename category "${name}" to:`, name);
+        const newName = (prompt(`Rename "${name}" — or type an existing category name to merge the two:`, name) || "").trim();
         if (!newName || newName === name) return;
+        // Renaming onto an existing name merges: the server DELETEs the old tag
+        // and ADDs the new one to a set, so duplicates collapse for free.
+        const target = cat.categories.find((c) => c.name.toLowerCase() === newName.toLowerCase());
+        if (target && !confirm(`"${target.name}" already exists — merge "${name}" into it?`)) return;
         try {
           await fetchAuthed(`/api/admin/categories/${encodeURIComponent(name)}`, {
-            method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ newName }),
+            method: "PUT", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ newName: target ? target.name : newName }),
           });
           renderCategories();
         } catch (err) { alert(`Rename failed: ${err.message}`); }
@@ -826,10 +1004,11 @@ async function renderCategory(name) {
         <p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>
       </div>
       ${admin ? uploadPanelHtml([name], "", collections) : ""}
+      ${admin && photos.length ? TAG_BAR_HTML : ""}
       ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos in this category yet.</p></section>`}
     `);
 
-    wirePhotoGrid(photos, admin, () => renderCategory(name));
+    await mountPhotoGrid(photos, admin, () => renderCategory(name));
     if (admin) await wireUploadPanel([name], () => renderCategory(name));
   } catch (err) {
     render(`<section class="empty"><a class="breadcrumb" href="#/categories">← Categories</a><p>Couldn't load category: ${esc(err.message)}</p></section>`);
@@ -863,10 +1042,10 @@ async function renderCollections() {
     const admin = isLoggedIn();
     const cards = cat.collections.map((c) => collectionCard(c, admin)).join("");
     render(`
-      <div class="page-head">
+      <!--div class="page-head">
         <div class="section-title"><h2>Collections</h2>${admin ? `<button id="new-collection" class="primary">＋ New collection</button>` : ""}</div>
         <p>Curated sets of photos that belong together.</p>
-      </div>
+      </div-->
       ${cat.collections.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin ? "Create a collection, then assign photos to it." : "No collections yet."}</p></section>`}
     `);
@@ -909,9 +1088,10 @@ async function renderCollection(id) {
         ${data.description ? `<p>${esc(data.description)}</p>` : `<p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>`}
       </div>
       ${admin ? uploadPanelHtml([], id, [{ id: data.id, title: data.title }]) : ""}
+      ${admin && photos.length ? TAG_BAR_HTML : ""}
       ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos in this collection yet.</p></section>`}
     `);
-    wirePhotoGrid(photos, admin, () => renderCollection(id));
+    await mountPhotoGrid(photos, admin, () => renderCollection(id));
     if (admin) await wireUploadPanel([], () => renderCollection(id));
   } catch (err) {
     render(`<section class="empty"><a class="breadcrumb" href="#/collections">← Collections</a><p>Couldn't load collection: ${esc(err.message)}</p></section>`);
@@ -1019,6 +1199,12 @@ function route() {
 window.addEventListener("hashchange", route);
 
 (async function main() {
+  // Sticky offset for the tag bar — the header height isn't a constant.
+  const header = document.querySelector(".site-header");
+  const setHeaderVar = () => document.documentElement.style.setProperty("--header-h", `${header.offsetHeight}px`);
+  setHeaderVar();
+  addEventListener("resize", setHeaderVar);
+
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   applyThemeButton();
   await handleAuthRedirect();
