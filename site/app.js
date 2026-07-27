@@ -628,15 +628,16 @@ function wirePhotoGrid(photos, admin, onChanged) {
   });
 }
 
-// Upload panel shared by category & collection pages.
+// Upload panel shared by category & collection pages — button + modal.
 function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
   return `
-    <section class="admin-panel">
+    <div class="page-actions"><button id="upload-open" class="primary">＋ Upload photos</button></div>
+    <div id="upload-modal" class="modal" hidden>
+      <div class="modal-card">
       <h3>Upload photos</h3>
       <form id="upload-form">
         <div class="upload-drop">
           <input type="file" id="upload-files" accept="image/*" multiple required />
-          <button type="submit" class="primary">Upload</button>
         </div>
         <div class="field">
           <span class="field-label">Categories</span>
@@ -664,12 +665,21 @@ function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
             <div class="recent-locations"></div>
           </div>
         </div>
+        <div class="modal-actions">
+          <button type="button" id="upload-cancel">Cancel</button>
+          <button type="submit" class="primary">Upload</button>
+        </div>
       </form>
       <ul id="upload-progress" class="progress"></ul>
-    </section>`;
+      </div>
+    </div>`;
 }
 
 async function wireUploadPanel(presetCategories, onDone) {
+  const modal = document.getElementById("upload-modal");
+  document.getElementById("upload-open").addEventListener("click", () => { modal.hidden = false; });
+  document.getElementById("upload-cancel").addEventListener("click", () => { modal.hidden = true; });
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
   const knownCats = await safeCategoryNames();
   const chips = createChipsInput(document.getElementById("upload-categories"), presetCategories || [], knownCats);
   const picker = attachLocationPicker(
@@ -775,7 +785,7 @@ async function renderCategories() {
       ${admin ? uploadPanelHtml([], "", collections) : ""}
       ${cat.categories.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin
-            ? "Upload a photo above and tag it to create your first category."
+            ? "Upload a photo and tag it to create your first category."
             : "No categories yet."}</p></section>`}
     `);
     if (admin) {
@@ -863,10 +873,10 @@ async function renderCollections() {
     const admin = isLoggedIn();
     const cards = cat.collections.map((c) => collectionCard(c, admin)).join("");
     render(`
-      <div class="page-head">
+      <!--div class="page-head">
         <div class="section-title"><h2>Collections</h2>${admin ? `<button id="new-collection" class="primary">＋ New collection</button>` : ""}</div>
         <p>Curated sets of photos that belong together.</p>
-      </div>
+      </div-->
       ${cat.collections.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin ? "Create a collection, then assign photos to it." : "No collections yet."}</p></section>`}
     `);

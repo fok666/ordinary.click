@@ -347,6 +347,7 @@ a.chip:hover { border-color: var(--accent); color: var(--accent); }
   box-shadow: var(--shadow-sm);
 }
 .admin-panel h3 { margin: 0 0 .8rem; font-size: 1.05rem; }
+.page-actions { margin: 0 0 1.25rem; }
 .admin-panel .form-row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-start; }
 .upload-drop {
   display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
