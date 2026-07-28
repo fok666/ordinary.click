@@ -4,8 +4,8 @@ Serverless personal photo gallery on AWS. Scale-to-zero: CloudFront → S3 + API
 
 ## Tech Stack
 
-- **Infrastructure**: Terraform >= 1.6.0, AWS provider ~> 5.60
-- **Backend**: Python 3.12 on Lambda (ARM64), Pillow 12.2.0 for image processing
+- **Infrastructure**: Terraform >= 1.6.0, AWS provider ~> 6.0
+- **Backend**: Python 3.14 on Lambda (ARM64), Pillow 12.3.0 for image processing
 - **Frontend**: Vanilla ES6+ JavaScript, Leaflet 1.9.4 (CDN), no bundler
 - **Auth**: Cognito with PKCE authorization code flow, JWTs validated at API Gateway
 - **CI/CD**: GitHub Actions with OIDC federation (no long-lived AWS keys)
@@ -30,8 +30,8 @@ cd terraform && terraform init && terraform apply
 
 # Lambda processor dependencies (auto-run by Terraform local-exec)
 python3 -m pip install --target terraform/build/processor \
-  --platform manylinux2014_aarch64 --implementation cp \
-  --python-version 3.12 --only-binary=:all: \
+  --platform manylinux_2_28_aarch64 --implementation cp \
+  --python-version 3.14 --only-binary=:all: \
   -r lambda/processor/requirements.txt
 
 # Site deployment (done by GitHub Actions)
@@ -39,7 +39,8 @@ aws s3 sync site/ s3://<site-bucket>/ --delete
 aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 ```
 
-There are no automated tests. No linting is configured.
+No linting is configured. The only test is `python3 test_api_handler.py` (repo
+root, stdlib only), covering admin-route authorization in the API Lambda.
 
 ## Code Conventions
 

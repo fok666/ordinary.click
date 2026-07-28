@@ -3,8 +3,10 @@ terraform {
 
   required_providers {
     aws = {
+      # 6.x required: the 5.x provider validates aws_lambda_function.runtime
+      # against a hardcoded list that stops at python3.13.
       source  = "hashicorp/aws"
-      version = "~> 5.60"
+      version = "~> 6.0"
     }
     archive = {
       source  = "hashicorp/archive"

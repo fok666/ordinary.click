@@ -1,3 +1,14 @@
+locals {
+  # Runtime for both functions, and the interpreter the processor's wheels are
+  # downloaded for. One value so the two can't drift apart.
+  lambda_python = "3.14"
+
+  # Wheels target the Lambda execution environment, not the build machine.
+  # AL2023 ships glibc 2.34; Pillow stopped publishing manylinux2014 wheels in
+  # 12.3.0, so manylinux2014_aarch64 now resolves to nothing.
+  processor_platform = "manylinux_2_28_aarch64"
+}
+
 ################################################################################
 # Gallery API: Lambda exposed via API Gateway HTTP API.
 # CloudFront fronts it for caching + custom domain.
@@ -95,7 +106,7 @@ resource "aws_cloudwatch_log_group" "api" {
 resource "aws_lambda_function" "api" {
   function_name = "${local.project}-api"
   role          = aws_iam_role.api.arn
-  runtime       = "python3.12"
+  runtime       = "python${local.lambda_python}"
   handler       = "handler.handler"
   architectures = ["arm64"]
 
@@ -130,6 +141,10 @@ resource "null_resource" "processor_build" {
   triggers = {
     handler      = filemd5("${path.module}/../lambda/processor/handler.py")
     requirements = filemd5("${path.module}/../lambda/processor/requirements.txt")
+    # Without this, changing the interpreter or platform below leaves the
+    # previous run's build dir in place and archive_file re-zips wheels built
+    # for the old Python — an ImportError only visible at invoke time.
+    target = "${local.lambda_python}-${local.processor_platform}"
   }
 
   provisioner "local-exec" {
@@ -142,9 +157,9 @@ resource "null_resource" "processor_build" {
       cp ${path.module}/../lambda/processor/handler.py "$build_dir/"
       python3 -m pip install \
         --target "$build_dir" \
-        --platform manylinux2014_aarch64 \
+        --platform ${local.processor_platform} \
         --implementation cp \
-        --python-version 3.12 \
+        --python-version ${local.lambda_python} \
         --only-binary=:all: \
         --upgrade \
         -r ${path.module}/../lambda/processor/requirements.txt
@@ -222,7 +237,7 @@ resource "aws_cloudwatch_log_group" "processor" {
 resource "aws_lambda_function" "processor" {
   function_name = "${local.project}-processor"
   role          = aws_iam_role.processor.arn
-  runtime       = "python3.12"
+  runtime       = "python${local.lambda_python}"
   handler       = "handler.handler"
   architectures = ["arm64"]
 
