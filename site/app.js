@@ -910,7 +910,7 @@ async function renderCover() {
         <a class="quick-link" href="#/collections"><span class="ql-icon">◆</span><strong>Collections</strong><span>Curated sets that belong together</span></a>
         <a class="quick-link" href="#/map"><span class="ql-icon">🗺️</span><strong>Map</strong><span>Explore geo-tagged photos</span></a>
       </div-->
-      ${featured ? `<div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div>` : ""}
+      ${featured ? `<!--div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div-->` : ""}
     `);
   } catch (err) {
     render(`<section class="empty"><p>Couldn't load: ${esc(err.message)}</p></section>`);
