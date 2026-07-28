@@ -1044,10 +1044,10 @@ async function renderCollections() {
     const admin = isLoggedIn();
     const cards = cat.collections.map((c) => collectionCard(c, admin)).join("");
     render(`
-      <!--div class="page-head">
+      <div class="page-head">
         <div class="section-title"><h2>Collections</h2>${admin ? `<button id="new-collection" class="primary">＋ New collection</button>` : ""}</div>
         <p>Curated sets of photos that belong together.</p>
-      </div-->
+      </div>
       ${cat.collections.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin ? "Create a collection, then assign photos to it." : "No collections yet."}</p></section>`}
     `);
