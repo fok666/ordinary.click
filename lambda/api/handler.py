@@ -16,7 +16,8 @@ Public endpoints (cached at CloudFront):
     GET    /api/collections/<id>              -> { "id", "title", "images": [...] }
     GET    /api/geo                            -> { "images": [...] }  (all geo-tagged)
 
-Admin endpoints (require a valid Cognito JWT — enforced by API Gateway):
+Admin endpoints (require a valid Cognito JWT — enforced by API Gateway *and*
+re-checked here, see `_jwt_claims`):
 
     POST   /api/admin/uploads                 -> presigned POST for direct S3 upload
     PUT    /api/admin/photos/<id>             -> update photo metadata
@@ -114,7 +115,9 @@ def _response(status: int, body: Any, *, cache_seconds: int = 0) -> dict:
         "headers": {
             "content-type": "application/json",
             "cache-control": f"public, max-age={cache_seconds}" if cache_seconds else "no-store",
-            "access-control-allow-origin": "*",
+            # Static, never reflected from the request: the CloudFront cache key
+            # for /api/* excludes headers, so a reflected Origin would poison it.
+            "access-control-allow-origin": SITE_URL or "*",
             "access-control-allow-headers": "content-type, authorization",
             "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
         },
@@ -513,19 +516,23 @@ def _update_photo(photo_id: str, body: dict) -> dict:
             order = body.get("collectionOrder")
             if order is not None:
                 try:
-                    sets.append("collectionOrder = :co")
                     vals[":co"] = int(order)
                 except (TypeError, ValueError):
                     pass
+                else:
+                    sets.append("collectionOrder = :co")
         else:
             removes.append("collectionId")
             removes.append("collectionOrder")
     elif "collectionOrder" in body:
+        # Append the clause only once the value parses, or DynamoDB rejects the
+        # whole update for a placeholder with no matching value (a 500, not a 400).
         try:
-            sets.append("collectionOrder = :co")
             vals[":co"] = int(body["collectionOrder"])
         except (TypeError, ValueError):
             pass
+        else:
+            sets.append("collectionOrder = :co")
 
     if "latitude" in body or "longitude" in body:
         lat = _safe_coordinate(body.get("latitude"))
@@ -721,7 +728,21 @@ def _delete_category(name: str) -> dict:
 # Routing
 # ---------------------------------------------------------------------------
 
-def _route(method: str, path: str, body: dict | None) -> dict:
+def _jwt_claims(event: dict) -> dict | None:
+    """Claims the API Gateway JWT authorizer attached, or None if it never ran.
+
+    API Gateway builds requestContext, so a client cannot forge this. Checking
+    it is not belt-and-braces: the `ANY /{proxy+}` catch-all route carries no
+    authorizer, and several paths reach the Lambda as an admin request without
+    ever matching the JWT-protected `.../api/admin/{proxy+}` routes — e.g.
+    `/admin/uploads` on the public API Gateway URL (no `/api` prefix), or
+    `/api//admin/uploads` (empty segment) through CloudFront.
+    """
+    auth = (event.get("requestContext") or {}).get("authorizer") or {}
+    return (auth.get("jwt") or {}).get("claims") or None
+
+
+def _route(method: str, path: str, body: dict | None, claims: dict | None = None) -> dict:
     parts = [p for p in path.strip("/").split("/") if p]
     if parts and parts[0] == "api":
         parts = parts[1:]
@@ -757,8 +778,10 @@ def _route(method: str, path: str, body: dict | None) -> dict:
             return _response(200, result, cache_seconds=60)
         return _response(404, {"error": "not found"})
 
-    # Admin writes — API Gateway has already validated the JWT.
+    # Admin writes — must carry authorizer claims, whatever route matched.
     if parts and parts[0] == "admin":
+        if not claims:
+            return _response(401, {"error": "unauthorized"})
         admin = parts[1:]
         b = body or {}
         if method == "POST" and admin == ["uploads"]:
@@ -809,7 +832,7 @@ def handler(event: dict, _context) -> dict:
         return _response(400, {"error": "invalid json body"})
 
     try:
-        return _route(method, path, body)
+        return _route(method, path, body, _jwt_claims(event))
     except Exception:
         LOG.exception("unhandled error for %s %s", method, path)
         return _response(500, {"error": "internal error"})

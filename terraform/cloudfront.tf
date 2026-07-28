@@ -107,8 +107,9 @@ resource "aws_cloudfront_distribution" "site" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
 
-    cache_policy_id          = aws_cloudfront_cache_policy.api.id
-    origin_request_policy_id = local.origin_request_policy_all_no_host
+    cache_policy_id            = aws_cloudfront_cache_policy.api.id
+    origin_request_policy_id   = local.origin_request_policy_all_no_host
+    response_headers_policy_id = local.response_headers_security
   }
 
   # --- Thumbnails: long cache, served straight from the images bucket -------
@@ -137,20 +138,11 @@ resource "aws_cloudfront_distribution" "site" {
     }
   }
 
-  # SPA-style fallback so client-side routes don't 404.
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 10
-  }
-
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 10
-  }
+  # No custom_error_response here on purpose. It is distribution-wide, so a
+  # 403/404 -> 200 /index.html rewrite also hits /api/*: "category not found"
+  # and an expired-JWT rejection both came back as 200 with an HTML body, which
+  # the SPA then tried to JSON.parse. Routing is hash-based (#/c/<name>), so
+  # every real URL is / and the fallback bought nothing.
 }
 
 # Rewrites /images/<...> to /display/<...> at the edge so the public URL
