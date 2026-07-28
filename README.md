@@ -17,7 +17,7 @@ Terraform; the site and API deploy from this repo.
    ┌────────────────┐       ┌────────────────┐       ┌────────────────────┐
    │ S3: site (OAC) │       │ S3: images(OAC)│       │ API Gateway HTTP   │
    │ index.html, JS │       │ photos by      │       │  ↓ AWS_PROXY       │
-   └────────────────┘       │ category/      │       │ Lambda (py3.12,arm)│
+   └────────────────┘       │ category/      │       │ Lambda (py3.14,arm)│
                             └────────────────┘       └────────────────────┘
 ```
 
@@ -47,7 +47,7 @@ Terraform; the site and API deploy from this repo.
 | Path | Purpose |
 | --- | --- |
 | `terraform/` | All AWS infrastructure (S3, CloudFront, ACM, Route53, Lambda, IAM, GitHub OIDC). |
-| `lambda/api/` | Python 3.12 Lambda that lists categories & images from S3. |
+| `lambda/api/` | Python 3.14 Lambda that lists categories & images from S3. |
 | `site/` | Static front-end deployed to the site bucket. |
 | `.github/workflows/deploy.yml` | OIDC-based deploy pipeline. |
 

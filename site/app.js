@@ -167,7 +167,9 @@ async function handleAuthRedirect() {
   sessionStorage.removeItem("oc.return");
   history.replaceState(null, "", url.pathname + returnTo);
 
-  if (expected && state !== expected) { alert("Login failed: state mismatch."); return true; }
+  // A missing `expected` means we never started this login — treat an injected
+  // ?code= as hostile rather than exchanging it.
+  if (!expected || state !== expected) { alert("Login failed: state mismatch."); return true; }
   try { await exchangeCode(code); }
   catch (err) { console.error(err); alert(`Login failed: ${err.message}`); }
   return true;

@@ -147,8 +147,15 @@ data "aws_iam_policy_document" "images_bucket" {
       identifiers = ["cloudfront.amazonaws.com"]
     }
 
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.images.arn}/*"]
+    actions = ["s3:GetObject"]
+
+    # Derivatives only. originals/ stays private: no CloudFront behaviour maps
+    # to it, and scoping here means a path that normalises out of /thumbs/ or
+    # /images/ can't reach the untouched uploads either.
+    resources = [
+      "${aws_s3_bucket.images.arn}/display/*",
+      "${aws_s3_bucket.images.arn}/thumbs/*",
+    ]
 
     condition {
       test     = "StringEquals"
