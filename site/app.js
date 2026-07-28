@@ -910,7 +910,7 @@ async function renderCover() {
         <a class="quick-link" href="#/collections"><span class="ql-icon">◆</span><strong>Collections</strong><span>Curated sets that belong together</span></a>
         <a class="quick-link" href="#/map"><span class="ql-icon">🗺️</span><strong>Map</strong><span>Explore geo-tagged photos</span></a>
       </div-->
-      ${featured ? `<div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div>` : ""}
+      ${featured ? `<!--div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div-->` : ""}
     `);
   } catch (err) {
     render(`<section class="empty"><p>Couldn't load: ${esc(err.message)}</p></section>`);
@@ -1044,10 +1044,10 @@ async function renderCollections() {
     const admin = isLoggedIn();
     const cards = cat.collections.map((c) => collectionCard(c, admin)).join("");
     render(`
-      <!--div class="page-head">
+      <div class="page-head">
         <div class="section-title"><h2>Collections</h2>${admin ? `<button id="new-collection" class="primary">＋ New collection</button>` : ""}</div>
         <p>Curated sets of photos that belong together.</p>
-      </div-->
+      </div>
       ${cat.collections.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin ? "Create a collection, then assign photos to it." : "No collections yet."}</p></section>`}
     `);
