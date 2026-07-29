@@ -532,10 +532,18 @@ input[type="file"] { color: var(--muted); }
   border-radius: var(--radius); overflow: hidden;
   border: 1px solid var(--border);
 }
-.map-popup { display: flex; gap: .6rem; align-items: flex-start; }
+.map-popup { display: flex; gap: .6rem; align-items: flex-start; max-width: 280px; }
 .map-popup-thumb img { width: 84px; height: 84px; object-fit: cover; border-radius: 6px; display: block; }
-.map-popup-info { font-size: .85rem; line-height: 1.4; max-width: 190px; }
-.map-popup-desc { color: #666; font-size: .8rem; }
+.map-popup-info { font-size: .85rem; line-height: 1.4; flex: 1; min-width: 0; }
+.map-popup-desc {
+  overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.map-popup-links { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .35rem; }
+.map-popup-links .chip { font-size: .74rem; padding: .1rem .5rem; max-width: 100%; overflow-wrap: anywhere; }
+.map-popup-explore { display: inline-block; margin-top: .45rem; font-size: .8rem; font-weight: 600; }
+.near-radii { margin-top: .7rem; }
+.near-radii .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 
 /* --- Location picker ------------------------------------------------------ */
 .location-picker { width: 100%; margin-top: .25rem; }

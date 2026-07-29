@@ -1141,11 +1141,89 @@ async function uploadFiles(files, meta, logEl) {
 // ---------------------------------------------------------------------------
 // Map page
 // ---------------------------------------------------------------------------
+const NEAR_RADII = [1, 5, 25, 100, 500];
+const NEAR_DEFAULT_KM = 25;
+
+async function collectionTitles() {
+  try {
+    return Object.fromEntries((await getCatalog()).collections.map((c) => [c.id, c.title]));
+  } catch { return {}; }
+}
+
+// Great-circle distance. ponytail: flat-earth approximation would be shorter but
+// wrong near the poles and across the antimeridian, for the same three lines.
+function haversineKm(aLat, aLng, bLat, bLng) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad, dLng = (bLng - aLng) * rad;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+// ponytail: filters the /api/geo payload client-side — a personal gallery's
+// geo list is a few hundred rows. Add a server-side geohash query if it grows.
+async function renderNearby(lat, lng, km) {
+  markActiveNav("/map");
+  const admin = isLoggedIn();
+  render(`<section class="loading"><p>Loading…</p></section>`);
+  try {
+    const { images } = await fetchJSON("/api/geo");
+    const photos = images
+      .map((p) => ({ p, d: haversineKm(lat, lng, Number(p.latitude), Number(p.longitude)) }))
+      .filter((x) => Number.isFinite(x.d) && x.d <= km)
+      .sort((a, b) => a.d - b.d)
+      .map((x) => x.p);
+    const chips = NEAR_RADII.map((r) =>
+      `<a class="chip${r === km ? " on" : ""}" href="#/near/${lat.toFixed(5)},${lng.toFixed(5)},${r}">${r} km</a>`).join("");
+    const here = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    render(`
+      <div class="page-head">
+        <div class="breadcrumb"><a href="#/map">Map</a> / this place</div>
+        <h2>Around ${esc(here)}</h2>
+        <p>${photos.length} photo${photos.length === 1 ? "" : "s"} within ${km} km —
+          <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=12/${lat}/${lng}" target="_blank" rel="noopener">see on OSM</a></p>
+        <div class="chip-row near-radii">${chips}</div>
+      </div>
+      ${admin && photos.length ? TAG_BAR_HTML : ""}
+      ${photos.length
+        ? `<div class="photo-grid">${photos.map((p, i) => photoTile(p, i, admin)).join("")}</div>`
+        : `<section class="empty"><p>No photos within ${km} km. Try a wider radius.</p></section>`}
+    `);
+    await mountPhotoGrid(photos, admin, () => renderNearby(lat, lng, km));
+  } catch (err) {
+    render(`<section class="empty"><a class="breadcrumb" href="#/map">← Map</a><p>Couldn't load nearby photos: ${esc(err.message)}</p></section>`);
+  }
+}
+// Popup body: description first (filename is a fallback, not a headline),
+// then tag/collection links and a radius search around the marker.
+function mapPopupHtml(img, collTitles) {
+  const lat = Number(img.latitude), lng = Number(img.longitude);
+  const link = img.categories?.[0]
+    ? `#/c/${encodeURIComponent(img.categories[0])}`
+    : (img.collectionId ? `#/collection/${encodeURIComponent(img.collectionId)}` : "#/");
+  const links = [
+    ...(img.categories || []).map((c) => `<a class="chip" href="#/c/${encodeURIComponent(c)}">${esc(c)}</a>`),
+    img.collectionId
+      ? `<a class="chip" href="#/collection/${encodeURIComponent(img.collectionId)}">◆ ${esc(collTitles[img.collectionId] || "collection")}</a>`
+      : "",
+  ].join("");
+  return `
+    <div class="map-popup">
+      <a href="${link}" class="map-popup-thumb"><img src="${esc(img.thumb)}" alt="${esc(img.filename)}" loading="lazy" /></a>
+      <div class="map-popup-info">
+        <div class="map-popup-desc">${esc(img.description || img.filename)}</div>
+        ${links ? `<div class="map-popup-links">${links}</div>` : ""}
+        <a class="map-popup-explore" href="#/near/${lat.toFixed(5)},${lng.toFixed(5)},${NEAR_DEFAULT_KM}">🧭 Explore this place</a>
+      </div>
+    </div>`;
+}
+
 async function renderMap() {
   markActiveNav("/map");
   render(`<div class="page-head"><h2>Map</h2><p>Geo-tagged photos</p></div><div id="geo-map"></div>`);
   try {
     const { images } = await fetchJSON("/api/geo");
+    const collTitles = await collectionTitles();
     if (!images.length) {
       render(`<div class="page-head"><h2>Map</h2></div><section class="empty"><p>No geo-tagged photos yet. Add coordinates to your photos to see them here.</p></section>`);
       return;
@@ -1162,17 +1240,7 @@ async function renderMap() {
       const lat = Number(img.latitude), lng = Number(img.longitude);
       if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
       bounds.push([lat, lng]);
-      const cat = img.categories?.[0];
-      const link = cat ? `#/c/${encodeURIComponent(cat)}` : (img.collectionId ? `#/collection/${encodeURIComponent(img.collectionId)}` : "#/");
-      const popup = `
-        <div class="map-popup">
-          <a href="${link}" class="map-popup-thumb"><img src="${esc(img.thumb)}" alt="${esc(img.filename)}" loading="lazy" /></a>
-          <div class="map-popup-info">
-            <strong>${esc(img.filename)}</strong>
-            ${img.description ? `<br><span class="map-popup-desc">${esc(img.description)}</span>` : ""}
-          </div>
-        </div>`;
-      markers.addLayer(L.marker([lat, lng]).bindPopup(popup, { maxWidth: 300, minWidth: 180 }));
+      markers.addLayer(L.marker([lat, lng]).bindPopup(mapPopupHtml(img, collTitles), { maxWidth: 300, minWidth: 180 }));
     }
     mapInstance.addLayer(markers);
     if (bounds.length === 1) mapInstance.setView(bounds[0], 14);
@@ -1191,7 +1259,9 @@ function route() {
   if (hash === "/categories") return renderCategories();
   if (hash === "/collections") return renderCollections();
   if (hash === "/map") return renderMap();
-  let m = hash.match(/^\/c\/(.+)$/);
+  let m = hash.match(/^\/near\/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/);
+  if (m) return renderNearby(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = hash.match(/^\/c\/(.+)$/);
   if (m) return renderCategory(decodeURIComponent(m[1]));
   m = hash.match(/^\/collection\/(.+)$/);
   if (m) return renderCollection(decodeURIComponent(m[1]));
