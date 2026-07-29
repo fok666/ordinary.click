@@ -247,6 +247,11 @@ function showLightbox() {
   const item = lightboxItems[lightboxIndex];
   lightboxImg.src = item.url;
   lightboxImg.alt = item.filename || "";
+  // Warm the neighbors so arrows/swipes feel instant.
+  [lightboxIndex + 1, lightboxIndex - 1].forEach((i) => {
+    const n = lightboxItems[(i + lightboxItems.length) % lightboxItems.length];
+    if (n?.url) new Image().src = n.url;
+  });
 
   let html = "";
   if (item.description) html += `<div class="lb-desc">${esc(item.description)}</div>`;
@@ -893,20 +898,20 @@ async function renderCover() {
   try {
     const cat = await getCatalog();
     const covers = [
-      ...cat.categories.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.name, kind: "category" })),
-      ...cat.collections.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.title, kind: "collection" })),
+      ...cat.categories.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.name, kind: "category", href: `#/c/${encodeURIComponent(c.name)}` })),
+      ...cat.collections.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.title, kind: "collection", href: `#/collection/${encodeURIComponent(c.id)}` })),
     ];
     const hero = covers.length ? covers[Math.floor(Math.random() * covers.length)] : null;
     const t = cat.totals;
 
     const heroHtml = hero ? `
-      <div class="cover-hero">
+      <a class="cover-hero" href="${hero.href}">
         <img src="${esc(hero.fb || hero.cover)}" alt="${esc(hero.label)}" />
         <div class="cover-hero-overlay">
           <span class="kicker">${hero.kind}</span>
           <h2>${esc(hero.label)}</h2>
         </div>
-      </div>` : "";
+      </a>` : "";
 
     const featured = cat.collections.slice(0, 4).map(collectionCard).join("");
 

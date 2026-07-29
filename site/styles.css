@@ -182,6 +182,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
 /* --- Cover / home --------------------------------------------------------- */
 .cover-hero {
   position: relative;
+  display: block;
   width: fit-content;
   max-width: 100%;
   margin: 0 auto 2rem;
@@ -552,7 +553,9 @@ input[type="file"] { color: var(--muted); }
 .map-popup-explore { display: inline-block; margin-top: .45rem; font-size: .8rem; font-weight: 600; }
 .near-radii { margin-top: .7rem; }
 .chip-row .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-.cat-nav { margin-top: .7rem; max-height: 5.4rem; overflow-y: auto; }
+/* Single-row chip rail: sideways scroll beats a wall of wrapped chips. */
+.cat-nav { margin-top: .7rem; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: .2rem; }
+.cat-nav .chip { flex: 0 0 auto; }
 
 /* --- Location picker ------------------------------------------------------ */
 .location-picker { width: 100%; margin-top: .25rem; }
@@ -590,6 +593,12 @@ input[type="file"] { color: var(--muted); }
   .photo-grid { columns: 2 150px; column-gap: .5rem; }
   .photo-item { margin-bottom: .5rem; }
   .page-head h2 { font-size: 1.5rem; }
+  /* Long emails collide with the brand on small screens. */
+  .auth-nav .who { display: none; }
+  /* Swipe is primary on touch — keep the arrows but out of the way. */
+  .lightbox-prev, .lightbox-next { width: 36px; height: 36px; font-size: 1.2rem; }
+  .lightbox-prev { left: .4rem; }
+  .lightbox-next { right: .4rem; }
 }
 @media (max-width: 420px) {
   .photo-grid { columns: 2 120px; }
