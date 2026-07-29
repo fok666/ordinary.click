@@ -13,6 +13,7 @@
 //   #/collections           all collections
 //   #/collection/<id>       one collection
 //   #/map                   geo-tagged photos
+//   #/near/<lat>,<lng>,<km>  photos within a radius of a point
 //
 // Cognito config is fetched at runtime from /api/config (no build step).
 

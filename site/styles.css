@@ -532,6 +532,13 @@ input[type="file"] { color: var(--muted); }
   border-radius: var(--radius); overflow: hidden;
   border: 1px solid var(--border);
 }
+/* Leaflet hard-codes a white popup and #0078A8 links — too little contrast on
+   our dark chips, so the popup follows the site theme instead. */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--fg); }
+.map-popup a { color: var(--accent); }
+.map-popup .chip { color: var(--fg); }
+.map-popup a.chip:hover, .map-popup-explore:hover { color: var(--accent-hover); }
+
 .map-popup { display: flex; gap: .6rem; align-items: flex-start; max-width: 280px; }
 .map-popup-thumb img { width: 84px; height: 84px; object-fit: cover; border-radius: 6px; display: block; }
 .map-popup-info { font-size: .85rem; line-height: 1.4; flex: 1; min-width: 0; }
