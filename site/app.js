@@ -260,7 +260,7 @@ function showLightbox() {
   if (item.latitude != null && item.longitude != null) {
     const lat = Number(item.latitude).toFixed(5);
     const lon = Number(item.longitude).toFixed(5);
-    html += `<div class="lb-geo">📍 ${esc(lat)}, ${esc(lon)} — <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}" target="_blank" rel="noopener">map</a></div>`;
+    html += `<div class="lb-geo">📍 ${esc(lat)}, ${esc(lon)} — <a href="#/near/${lat},${lon},${NEAR_DEFAULT_KM}">🧭 nearby</a> · <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}" target="_blank" rel="noopener">map</a></div>`;
   }
   lightboxMeta.innerHTML = html;
 }
@@ -273,6 +273,18 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeLightbox();
   else if (e.key === "ArrowLeft") { lightboxIndex--; showLightbox(); }
   else if (e.key === "ArrowRight") { lightboxIndex++; showLightbox(); }
+});
+// Swipe left/right on touch screens; a plain tap (dx below threshold) still
+// falls through to the click handler and closes.
+let _swipeX = null;
+lightbox.addEventListener("touchstart", (e) => { _swipeX = e.touches[0].clientX; }, { passive: true });
+lightbox.addEventListener("touchend", (e) => {
+  if (_swipeX == null) return;
+  const dx = e.changedTouches[0].clientX - _swipeX;
+  _swipeX = null;
+  if (Math.abs(dx) < 40) return;
+  lightboxIndex += dx < 0 ? 1 : -1;
+  showLightbox();
 });
 
 // ---------------------------------------------------------------------------
@@ -616,7 +628,7 @@ function photoTile(photo, i, admin) {
   return `
     <div class="photo-item" data-index="${i}" data-id="${esc(photo.id)}">
       <div class="photo-frame">
-        <img loading="lazy" src="${esc(photo.thumb || photo.url)}" alt="${esc(photo.filename)}"
+        <img loading="lazy" decoding="async" src="${esc(photo.thumb || photo.url)}" alt="${esc(photo.filename)}"
              data-url="${esc(photo.url)}"
              onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src=this.dataset.url;}" />
         ${admin ? `<button class="photo-select" data-index="${i}" title="Select (shift-click for a range)" aria-pressed="false">✓</button>
@@ -923,7 +935,7 @@ async function renderCover() {
 // ---------------------------------------------------------------------------
 function categoryCard(c, admin) {
   const cover = c.cover
-    ? `<img loading="lazy" src="${esc(c.cover)}" alt="${esc(c.name)}" data-fb="${esc(c.coverFallback || c.cover)}"
+    ? `<img loading="lazy" decoding="async" src="${esc(c.cover)}" alt="${esc(c.name)}" data-fb="${esc(c.coverFallback || c.cover)}"
          onerror="if(this.dataset.done!=='1'){this.dataset.done='1';this.src=this.dataset.fb;}">`
     : `<div class="placeholder">🏷️</div>`;
   return `
@@ -999,12 +1011,16 @@ async function renderCategory(name) {
     const photos = data.images;
     const collections = admin ? (await getCatalog()).collections : [];
     const tiles = photos.map((p, i) => photoTile(p, i, admin)).join("");
+    const siblings = await safeCategoryNames();
+    const catNav = siblings.length > 1 ? `<div class="chip-row cat-nav">${siblings.map((c) =>
+      `<a class="chip${c === name ? " on" : ""}" href="#/c/${encodeURIComponent(c)}">${esc(c)}</a>`).join("")}</div>` : "";
 
     render(`
       <div class="page-head">
         <div class="breadcrumb"><a href="#/categories">Categories</a> / ${esc(name)}</div>
         <h2>${esc(name)}</h2>
         <p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>
+        ${catNav}
       </div>
       ${admin ? uploadPanelHtml([name], "", collections) : ""}
       ${admin && photos.length ? TAG_BAR_HTML : ""}
@@ -1023,7 +1039,7 @@ async function renderCategory(name) {
 // ---------------------------------------------------------------------------
 function collectionCard(c, admin) {
   const cover = c.cover
-    ? `<img loading="lazy" src="${esc(c.cover)}" alt="${esc(c.title)}" data-fb="${esc(c.coverFallback || c.cover)}"
+    ? `<img loading="lazy" decoding="async" src="${esc(c.cover)}" alt="${esc(c.title)}" data-fb="${esc(c.coverFallback || c.cover)}"
          onerror="if(this.dataset.done!=='1'){this.dataset.done='1';this.src=this.dataset.fb;}">`
     : `<div class="placeholder">◆</div>`;
   return `
@@ -1269,7 +1285,13 @@ function route() {
   return renderCover();
 }
 
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => {
+  // In-lightbox links (category chips, nearby) navigate under the overlay —
+  // close it and reset scroll so the new page is actually visible.
+  if (!lightbox.hidden) closeLightbox();
+  scrollTo(0, 0);
+  route();
+});
 
 (async function main() {
   // Sticky offset for the tag bar — the header height isn't a constant.

@@ -376,7 +376,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--fg); }
 }
 .tag-bar-count { flex: 1; }
 .tag-bar-head button { padding: .15rem .6rem; font-size: .8rem; }
-.tag-palette { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+/* Long tag lists scroll in place instead of burying the photo grid. */
+.tag-palette { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; max-height: 5.4rem; overflow-y: auto; }
 .tag-palette.idle { opacity: .55; }
 .tag-chip {
   padding: .18rem .7rem; font-size: .82rem; border-radius: 999px;
@@ -468,7 +469,7 @@ input[type="file"] { color: var(--muted); }
   box-shadow: none;
 }
 .chips-input input:focus { box-shadow: none; }
-.chip-suggest { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .35rem; }
+.chip-suggest { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .35rem; max-height: 5.4rem; overflow-y: auto; }
 .chip-suggest:empty { display: none; }
 .chip.add {
   padding: .1rem .55rem; font-size: .75rem; border-radius: 999px;
@@ -550,7 +551,8 @@ input[type="file"] { color: var(--muted); }
 .map-popup-links .chip { font-size: .74rem; padding: .1rem .5rem; max-width: 100%; overflow-wrap: anywhere; }
 .map-popup-explore { display: inline-block; margin-top: .45rem; font-size: .8rem; font-weight: 600; }
 .near-radii { margin-top: .7rem; }
-.near-radii .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.chip-row .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.cat-nav { margin-top: .7rem; max-height: 5.4rem; overflow-y: auto; }
 
 /* --- Location picker ------------------------------------------------------ */
 .location-picker { width: 100%; margin-top: .25rem; }
