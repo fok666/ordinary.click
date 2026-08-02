@@ -78,6 +78,18 @@ def demo():
     ])
     assert [(t["name"], t["count"]) for t in tags] == [("ISS", 2)], tags
 
+    # Single-photo tags hide when their photo has other tags; a photo whose
+    # tags would ALL hide keeps its alphabetically-first one (no orphans).
+    tags = handler._tags_from([
+        {"ready": True, "sk": "a", "categories": {"munich", "solo"}},  # solo: 1 photo w/ 2 tags
+        {"ready": True, "sk": "b", "categories": {"munich"}},          # munich: 2 photos
+        {"ready": True, "sk": "c", "categories": {"one"}},             # photo's only tag
+        {"ready": True, "sk": "d", "categories": {"foo", "bar"}},      # both would hide -> keep "bar"
+    ])
+    assert len(tags) == 5, tags  # hidden entries still present for admins
+    vis = {t["name"] for t in tags if not t.get("hidden")}
+    assert vis == {"munich", "one", "bar"}, vis
+
     print("ok")
 
 
