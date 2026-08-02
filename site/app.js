@@ -1011,9 +1011,12 @@ async function renderCover() {
 // ---------------------------------------------------------------------------
 // Tags index
 // ---------------------------------------------------------------------------
-function tagCard(c, admin) {
-  const cover = c.cover
+function tagCard(c, admin, dupCover) {
+  // Consecutive tags sharing a cover: public gets the placeholder instead of
+  // a repeated picture; admins keep the picture, dimmed, so they can see why.
+  const cover = c.cover && !(dupCover && !admin)
     ? `<img loading="lazy" decoding="async" src="${esc(c.cover)}" alt="${esc(c.name)}" data-fb="${esc(c.coverFallback || c.cover)}"
+         class="${dupCover ? "dup-cover" : ""}"
          onerror="if(this.dataset.done!=='1'){this.dataset.done='1';this.src=this.dataset.fb;}">`
     : `<div class="placeholder">🏷️</div>`;
   return `
@@ -1037,7 +1040,8 @@ async function renderTags() {
     // Single-photo tags whose photo has other tags are server-marked hidden;
     // admins keep the full list so they can rename/merge them.
     const tags = admin ? cat.tags : cat.tags.filter((t) => !t.hidden);
-    const cards = tags.map((c) => tagCard(c, admin)).join("");
+    const cards = tags.map((c, i) =>
+      tagCard(c, admin, !!c.cover && i > 0 && c.cover === tags[i - 1].cover)).join("");
     render(`
       <div class="page-head"><h2>Tags</h2><p>${tags.length
         ? "Overlapping themes — a photo can carry several. #hashtags in descriptions count too." : "No tags yet."}</p></div>
