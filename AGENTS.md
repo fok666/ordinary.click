@@ -15,7 +15,7 @@ Serverless personal photo gallery on AWS. Scale-to-zero: CloudFront → S3 + API
 | Directory | Purpose |
 |-----------|---------|
 | `terraform/` | All AWS infrastructure as code |
-| `lambda/api/` | Gallery API Lambda — categories, images, presigned URLs |
+| `lambda/api/` | Gallery API Lambda — tags, collections, photos, presigned uploads (DynamoDB-backed) |
 | `lambda/processor/` | Image processor Lambda — resize, thumbnails, GPS extraction (S3-triggered) |
 | `site/` | Static SPA (HTML/CSS/JS), deployed to S3 via `aws s3 sync` |
 | `scripts/` | Local helper scripts (e.g., STS assume-role) |
@@ -40,7 +40,8 @@ aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 ```
 
 No linting is configured. The only test is `python3 test_api_handler.py` (repo
-root, stdlib only), covering admin-route authorization in the API Lambda.
+root, stdlib only), covering admin-route authorization and hashtag-tag
+extraction in the API Lambda.
 
 ## Code Conventions
 
@@ -48,15 +49,15 @@ root, stdlib only), covering admin-route authorization in the API Lambda.
 
 - Single `handler(event, context)` entry point per `handler.py`
 - Module-level logger: `LOG = logging.getLogger()`
-- Validate inputs with regex patterns (`_NAME_RE`, `_FILE_RE`) — never trust API Gateway alone
+- Validate inputs with regex patterns (`_NAME_RE`, `_HASH_RE`, `_COLLECTION_ID_RE`) — never trust API Gateway alone
 - Use `decimal.Decimal` for DynamoDB float values
-- Config via environment variables (`IMAGE_BUCKET`, `METADATA_TABLE`, etc.) — no `.env` files
+- Config via environment variables (`IMAGE_BUCKET`, `CATALOG_TABLE`, etc.) — no `.env` files
 - Graceful degradation: log errors, return useful responses, don't crash on optional metadata
 
 ### JavaScript (Frontend)
 
 - No build step, no transpilation, no framework
-- Hash-based routing (`#/`, `#/gallery`, `#/c/<category>`, `#/map`)
+- Hash-based routing (`#/`, `#/tags`, `#/t/<tag>`, `#/collections`, `#/collection/<id>`, `#/map`, `#/near/<lat>,<lng>,<km>`; `#/categories` and `#/c/<tag>` are legacy aliases)
 - Always escape user content with the `esc()` helper to prevent XSS
 - Use `fetchJSON()` / `fetchAuthed()` wrappers for API calls
 - Auth tokens in `localStorage`; PKCE implemented manually per RFC 7636
@@ -69,19 +70,26 @@ root, stdlib only), covering admin-route authorization in the API Lambda.
 - Conditional resources with `count`
 - Common tags applied via `local.common_tags`
 
-## S3 Layout (Images Bucket)
+## Data Layout
 
-```
-originals/<category>/<file>    # User uploads (kept forever)
-categories/<category>/<file>   # Display size (≤ 2048px)
-thumbs/<category>/<file>       # Thumbnails (≤ 400px)
+DynamoDB (single table): `pk="PHOTO" sk=<id>` and `pk="COLLECTION" sk=<id>`,
+where a photo `<id>` is the SHA-256 of its bytes. A photo's effective tags =
+stored tag set (attribute still named `categories` — legacy, no migration) +
+`#hashtags` parsed from its description.
+
+S3 (images bucket):
+
+```text
+originals/<id>.<ext>    # User uploads (kept forever)
+display/<id>.<ext>      # Display size (≤ 2048px), served as /images/<id>.<ext>
+thumbs/<id>.<ext>       # Thumbnails (≤ 400px)
 ```
 
 ## API Endpoints
 
-- `GET /api/categories`, `GET /api/categories/<name>`, `GET /api/geo` — public, 60s CloudFront cache
-- `POST/PUT/DELETE /api/admin/*` — Cognito JWT required
-- Category and filename params are regex-validated server-side
+- `GET /api/catalog`, `/api/tags`, `/api/tags/<name>`, `/api/collections`, `/api/collections/<id>`, `/api/geo` — public, 60s CloudFront cache (`categories` accepted as path alias for `tags`)
+- `POST/PUT/DELETE /api/admin/*` (uploads, photos, collections, tags) — Cognito JWT required
+- Tag names, photo ids and collection ids are regex-validated server-side
 
 ## Security Notes
 

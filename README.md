@@ -6,19 +6,25 @@ Terraform; the site and API deploy from this repo.
 
 ## Architecture
 
-```
+```text
                           ┌──────────────────────────┐
    browser ──HTTPS──▶     │   CloudFront (TLS, edge) │
                           └──────────┬───────────────┘
                                      │
             ┌────────────────────────┼─────────────────────────┐
-            │ default                │ /images/*               │ /api/*
+            │ default                │ /images/* /thumbs/*     │ /api/*
             ▼                        ▼                         ▼
-   ┌────────────────┐       ┌────────────────┐       ┌────────────────────┐
-   │ S3: site (OAC) │       │ S3: images(OAC)│       │ API Gateway HTTP   │
-   │ index.html, JS │       │ photos by      │       │  ↓ AWS_PROXY       │
-   └────────────────┘       │ category/      │       │ Lambda (py3.14,arm)│
-                            └────────────────┘       └────────────────────┘
+   ┌────────────────┐       ┌─────────────────┐      ┌────────────────────┐
+   │ S3: site (OAC) │       │ S3: images (OAC)│      │ API Gateway HTTP   │
+   │ index.html, JS │       │ originals/      │      │  ↓ AWS_PROXY       │
+   └────────────────┘       │ display/ thumbs/│      │ API Lambda (py3.14)│
+                            └───┬─────────▲───┘      └──────────┬─────────┘
+                  S3 event on   │         │ writes              │
+                  originals/*   ▼         │ derivatives         ▼
+                            ┌─────────────┴───┐      ┌────────────────────┐
+                            │ processor Lambda│─────▶│ DynamoDB catalog   │
+                            │ (Pillow, EXIF)  │ mark │ photos+collections │
+                            └─────────────────┘ ready└────────────────────┘
 ```
 
 * **Scale-to-zero**: nothing runs while idle. S3 charges per byte stored,
@@ -46,10 +52,25 @@ Terraform; the site and API deploy from this repo.
 
 | Path | Purpose |
 | --- | --- |
-| `terraform/` | All AWS infrastructure (S3, CloudFront, ACM, Route53, Lambda, IAM, GitHub OIDC). |
-| `lambda/api/` | Python 3.14 Lambda that lists categories & images from S3. |
+| `terraform/` | All AWS infrastructure (S3, CloudFront, ACM, Route53, Lambda, DynamoDB, Cognito, IAM, GitHub OIDC). |
+| `lambda/api/` | Python 3.14 Lambda serving the catalog (tags, collections, geo) and the admin API (presigned uploads, metadata edits) from DynamoDB. |
+| `lambda/processor/` | Python 3.14 Lambda (Pillow) that resizes uploads, extracts EXIF GPS, and marks photos ready. |
 | `site/` | Static front-end deployed to the site bucket. |
 | `.github/workflows/deploy.yml` | OIDC-based deploy pipeline. |
+
+## Data model
+
+One photo, many tags. Photos are stored once under a content-hash id (SHA-256
+of the bytes — re-uploading the same file merges metadata instead of
+duplicating it) and live in a single DynamoDB table together with collections:
+
+* **Tags** — overlapping labels; a photo can carry any number. A photo's
+  effective tags are its stored tag set **plus any `#hashtags` written in its
+  description** — `#cars` in a description makes the photo show up under the
+  `cars` tag, and the site renders it as a clickable link.
+* **Collections** — curated, titled sets; a photo belongs to at most one.
+* Tag pages (and collection / nearby views) offer additive drill-down: click
+  more tags to narrow the grid (AND), click again to widen.
 
 ## Bootstrap
 
@@ -90,35 +111,31 @@ Two ways to upload:
    Cognito emails a temporary password; you'll be asked to change it on first
    login.
 
-2. On the home page, an **Upload** form appears. Type a category name (new or
-   existing) and pick image files. Each upload is sent directly to S3 via a
-   presigned POST. The processor Lambda then produces a max-2048px display
-   image and a max-400px thumbnail; the original is kept untouched.
+2. On the **Tags** page (or any tag / collection page), click **＋ Upload
+   photos**. Pick image files, add tags via the chips input, optionally assign
+   a collection, a description (`#hashtags` in it become searchable tags) and
+   a location. The browser hashes each file (SHA-256) and sends it directly to
+   S3 via a presigned POST; the processor Lambda then produces a max-2048px
+   display image and a max-400px thumbnail. The original is kept untouched.
 
-3. On a category page, you can upload more images and click the trash icon on
-   any tile to delete it (original + display + thumb together).
+3. On any photo grid, admins can select photos and paint tags on/off with the
+   tag bar, edit metadata per photo (✏️), or delete a photo (🗑 — original +
+   display + thumb + catalog item together).
 
-### From the CLI (legacy / bulk)
+There is no supported CLI upload path: photos are keyed by content hash and
+their metadata lives in DynamoDB, so objects dropped straight into the bucket
+would never appear in the catalog.
 
-Direct uploads under `categories/<name>/` still work for the read API but
-won't get a thumbnail or be down-scaled, so the gallery falls back to the
-display URL for the cover. To trigger processing, upload to the
-`originals/<name>/` prefix instead:
-
-```bash
-aws s3 cp ./mountains/ "s3://ordinary-click-images/originals/mountains/" \
-  --recursive
-```
-
-S3 layout:
+S3 layout (`<id>` = SHA-256 of the original bytes):
 
 | Prefix | Contents | Public path |
 | --- | --- | --- |
-| `originals/<cat>/<file>` | uploaded original (kept) | _private_ |
-| `categories/<cat>/<file>` | display image (≤ 2048 px long edge) | `/images/<cat>/<file>` |
-| `thumbs/<cat>/<file>` | thumbnail (≤ 400 px long edge) | `/thumbs/<cat>/<file>` |
+| `originals/<id>.<ext>` | uploaded original (kept) | _private_ |
+| `display/<id>.<ext>` | display image (≤ 2048 px long edge) | `/images/<id>.<ext>` |
+| `thumbs/<id>.<ext>` | thumbnail (≤ 400 px long edge) | `/thumbs/<id>.<ext>` |
 
-The API caches category listings for 60 seconds at the edge.
+The API caches public reads (catalog, tag and collection listings, geo) for
+60 seconds at the edge.
 
 ## Click for full-size view
 
