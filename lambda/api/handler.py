@@ -285,25 +285,41 @@ def _photo_public(item: dict) -> dict:
 
 def _tags_from(photos: list[dict]) -> list[dict]:
     cats: dict[str, dict] = {}
+    photo_keys: list[set[str]] = []  # each ready photo's tag fold keys
     for p in photos:
         if not p.get("ready"):
             continue
         obj = _photo_key(p)
+        keys: set[str] = set()
         for name in _photo_tags(p):
             # Grouped by fold key so spelling variants collapse into one
             # entry; the first-seen spelling is the display name.
-            entry = cats.setdefault(_fold(name), {"name": name, "count": 0, "_cover": None})
+            k = _fold(name)
+            keys.add(k)
+            entry = cats.setdefault(k, {"name": name, "count": 0, "_cover": None})
             entry["count"] += 1
             if entry["_cover"] is None:
                 entry["_cover"] = obj
+        if keys:
+            photo_keys.append(keys)
+    # A single-photo tag is clutter when that photo is reachable through its
+    # other tags: mark it hidden (public Tags page filters, admins see all).
+    hidden = {k for keys in photo_keys if len(keys) > 1
+              for k in keys if cats[k]["count"] == 1}
+    # ...but never orphan a photo: if ALL its tags got hidden, un-hide the
+    # alphabetically first one. Safe: a hidden tag belongs to one photo only.
+    for keys in photo_keys:
+        if keys <= hidden:
+            hidden.discard(min(keys, key=lambda k: cats[k]["name"].lower()))
     result = []
-    for e in sorted(cats.values(), key=lambda e: e["name"].lower()):
+    for k, e in sorted(cats.items(), key=lambda kv: kv[1]["name"].lower()):
         cover = e["_cover"]
         result.append({
             "name": e["name"],
             "count": e["count"],
             "cover": _thumb_url(cover) if cover else None,
             "coverFallback": _display_url(cover) if cover else None,
+            **({"hidden": True} if k in hidden else {}),
         })
     return result
 

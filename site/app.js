@@ -1034,12 +1034,15 @@ async function renderTags() {
     const cat = await getCatalog(true);
     const admin = isLoggedIn();
     const collections = admin ? cat.collections : [];
-    const cards = cat.tags.map((c) => tagCard(c, admin)).join("");
+    // Single-photo tags whose photo has other tags are server-marked hidden;
+    // admins keep the full list so they can rename/merge them.
+    const tags = admin ? cat.tags : cat.tags.filter((t) => !t.hidden);
+    const cards = tags.map((c) => tagCard(c, admin)).join("");
     render(`
-      <div class="page-head"><h2>Tags</h2><p>${cat.tags.length
+      <div class="page-head"><h2>Tags</h2><p>${tags.length
         ? "Overlapping themes — a photo can carry several. #hashtags in descriptions count too." : "No tags yet."}</p></div>
       ${admin ? uploadPanelHtml([], "", collections) : ""}
-      ${cat.tags.length ? `<div class="card-grid">${cards}</div>`
+      ${tags.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin
             ? "Upload a photo and tag it to create your first tag."
             : "No tags yet."}</p></section>`}
