@@ -58,6 +58,7 @@ import logging
 import os
 import re
 import time
+import unicodedata
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -101,11 +102,12 @@ PRESIGN_EXPIRES_SECONDS = 600
 MAX_TAGS_PER_PHOTO = 25
 MAX_DESCRIPTION_LEN = 2000
 
-_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$")
+# [^\W_] = Unicode alnum (so "ü"/"ö" work); \w adds underscore.
+_NAME_RE = re.compile(r"^[^\W_][\w .-]{0,63}$")
 # "#cars" in a description tags the photo "cars". No spaces, must end on an
 # alnum so sentence punctuation ("#cars.") stays out; the lookbehind keeps
 # "&#39;"-style entities and infix hashes ("foo#bar") from matching.
-_HASHTAG_RE = re.compile(r"(?<![&\w])#([a-zA-Z0-9](?:[a-zA-Z0-9_.-]*[a-zA-Z0-9])?)")
+_HASHTAG_RE = re.compile(r"(?<![&\w])#([^\W_](?:[\w.-]*[^\W_])?)")
 _HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 _COLLECTION_ID_RE = re.compile(r"^[a-f0-9]{8,32}$")
 
@@ -154,8 +156,15 @@ def _thumb_url(obj: str) -> str:
 # Validation
 # ---------------------------------------------------------------------------
 
+def _fold(name: str) -> str:
+    """Comparison key for tag names: casefold + strip accents, so "ISS"/"iss"
+    and "münchen"/"munchen" count as the same tag. Display keeps the original."""
+    return "".join(c for c in unicodedata.normalize("NFKD", name.casefold())
+                   if not unicodedata.combining(c))
+
+
 def _safe_name(name: str) -> str | None:
-    name = (name or "").strip()
+    name = unicodedata.normalize("NFC", (name or "").strip())
     if not name or not _NAME_RE.match(name):
         return None
     return name
@@ -188,8 +197,8 @@ def _clean_tags(raw: Any) -> list[str]:
     out: list[str] = []
     for item in raw:
         name = _safe_name(item if isinstance(item, str) else "")
-        if name and name not in seen:
-            seen.add(name)
+        if name and _fold(name) not in seen:
+            seen.add(_fold(name))
             out.append(name)
         if len(out) >= MAX_TAGS_PER_PHOTO:
             break
@@ -199,7 +208,8 @@ def _clean_tags(raw: Any) -> list[str]:
 def _clean_description(raw: Any) -> str | None:
     if raw is None:
         return None
-    return str(raw)[:MAX_DESCRIPTION_LEN]
+    # NFC so decomposed umlauts don't split #hashtags mid-character.
+    return unicodedata.normalize("NFC", str(raw))[:MAX_DESCRIPTION_LEN]
 
 
 # ---------------------------------------------------------------------------
@@ -236,8 +246,11 @@ def _photo_key(item: dict) -> str:
 def _photo_tags(item: dict) -> set[str]:
     """Effective tags: the stored set plus #hashtags found in the description."""
     tags = set(item.get("categories", set()))
+    keys = {_fold(t) for t in tags}
     for t in _HASHTAG_RE.findall(str(item.get("description") or "")):
-        if _NAME_RE.match(t):
+        # Stored spelling wins over a fold-equal hashtag variant.
+        if _NAME_RE.match(t) and _fold(t) not in keys:
+            keys.add(_fold(t))
             tags.add(t)
     return tags
 
@@ -277,13 +290,14 @@ def _tags_from(photos: list[dict]) -> list[dict]:
             continue
         obj = _photo_key(p)
         for name in _photo_tags(p):
-            entry = cats.setdefault(name, {"name": name, "count": 0, "_cover": None})
+            # Grouped by fold key so spelling variants collapse into one
+            # entry; the first-seen spelling is the display name.
+            entry = cats.setdefault(_fold(name), {"name": name, "count": 0, "_cover": None})
             entry["count"] += 1
             if entry["_cover"] is None:
                 entry["_cover"] = obj
     result = []
-    for name in sorted(cats, key=str.lower):
-        e = cats[name]
+    for e in sorted(cats.values(), key=lambda e: e["name"].lower()):
         cover = e["_cover"]
         result.append({
             "name": e["name"],
@@ -352,8 +366,9 @@ def _list_tag(name: str) -> dict | None:
     safe = _safe_name(name)
     if not safe:
         return None
+    key = _fold(safe)
     photos = _all_photos()
-    matched = [p for p in photos if safe in _photo_tags(p)]
+    matched = [p for p in photos if key in {_fold(t) for t in _photo_tags(p)}]
     if not matched:
         return None
     imgs = [_photo_public(p) for p in matched]
@@ -716,21 +731,26 @@ def _rename_tag(name: str, body: dict) -> dict:
         return _response(400, {"error": "invalid category name(s)"})
     if old == new:
         return _response(200, {"renamed": 0})
+    old_key = _fold(old)
     count = 0
     for p in _all_photos():
-        if old in p.get("categories", set()):
-            key = {"pk": PHOTO_PK, "sk": p["sk"]}
-            _ddb.update_item(
-                Key=key,
-                UpdateExpression="DELETE categories :old",
-                ExpressionAttributeValues={":old": {old}},
-            )
-            _ddb.update_item(
-                Key=key,
-                UpdateExpression="ADD categories :new",
-                ExpressionAttributeValues={":new": {new}},
-            )
-            count += 1
+        # The catalog shows one entry per fold key, so move every stored
+        # spelling variant ("iss", "ISS"), not just the exact string.
+        hits = {t for t in p.get("categories", set()) if _fold(t) == old_key}
+        if not hits or hits == {new}:
+            continue
+        key = {"pk": PHOTO_PK, "sk": p["sk"]}
+        _ddb.update_item(
+            Key=key,
+            UpdateExpression="DELETE categories :old",
+            ExpressionAttributeValues={":old": hits},
+        )
+        _ddb.update_item(
+            Key=key,
+            UpdateExpression="ADD categories :new",
+            ExpressionAttributeValues={":new": {new}},
+        )
+        count += 1
     return _response(200, {"renamed": count, "from": old, "to": new})
 
 
@@ -738,13 +758,15 @@ def _delete_tag(name: str) -> dict:
     old = _safe_name(name)
     if not old or not _ddb:
         return _response(400, {"error": "invalid category name"})
+    old_key = _fold(old)
     count = 0
     for p in _all_photos():
-        if old in p.get("categories", set()):
+        hits = {t for t in p.get("categories", set()) if _fold(t) == old_key}
+        if hits:
             _ddb.update_item(
                 Key={"pk": PHOTO_PK, "sk": p["sk"]},
                 UpdateExpression="DELETE categories :old",
-                ExpressionAttributeValues={":old": {old}},
+                ExpressionAttributeValues={":old": hits},
             )
             count += 1
     return _response(200, {"removed": count, "category": old})

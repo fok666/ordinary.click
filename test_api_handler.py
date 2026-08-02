@@ -57,6 +57,27 @@ def demo():
     assert got == {"cars", "Sunset", "v1.0"}, got
     assert handler._photo_tags({}) == set()
 
+    # Non-ASCII tags: umlauts must not truncate hashtags or fail validation,
+    # and decomposed input (u + combining diaeresis) must normalize to NFC.
+    got = handler._photo_tags({"description": "Ein #grünes Auto, #Übermut"})
+    assert got == {"grünes", "Übermut"}, got
+    assert handler._clean_tags(["gr\u00fcn", "gru\u0308n", "\u00d6l 2.0"]) == ["gr\u00fcn", "\u00d6l 2.0"]
+    assert handler._clean_description("gru\u0308n") == "gr\u00fcn"
+
+    # Fold-based dedup: case/diacritic spelling variants are one tag.
+    assert handler._fold("ISS") == handler._fold("iss")
+    assert handler._fold("m\u00fcnchen") == handler._fold("munchen")
+    assert handler._clean_tags(["ISS", "iss", "m\u00fcnchen", "munchen"]) == ["ISS", "m\u00fcnchen"]
+    # Stored spelling wins over a fold-equal hashtag in the description.
+    got = handler._photo_tags({"categories": {"munchen"}, "description": "#m\u00fcnchen #glyptothek"})
+    assert got == {"munchen", "glyptothek"}, got
+    # Catalog groups variants into one entry, first-seen spelling displays.
+    tags = handler._tags_from([
+        {"ready": True, "sk": "a", "categories": {"ISS"}},
+        {"ready": True, "sk": "b", "categories": {"iss"}},
+    ])
+    assert [(t["name"], t["count"]) for t in tags] == [("ISS", 2)], tags
+
     print("ok")
 
 

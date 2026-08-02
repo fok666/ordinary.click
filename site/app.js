@@ -31,10 +31,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
 
 // Effective tags of a photo: server-merged stored set + description hashtags.
 const photoTags = (p) => p.tags || p.categories || [];
+// Comparison key for tag names: case- and accent-insensitive, mirrors server _fold().
+const foldTag = (s) => (s || "").toLowerCase().normalize("NFKD").replace(/\p{M}+/gu, "");
 
 // "#cars" in a description becomes a link to the cars tag. Mirrors the server
 // regex. Escape first — the lookbehind also skips esc()'s "&#39;" entities.
-const TAG_RE = /(?<![&\w])#([A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?)/g;
+const TAG_RE = /(?<![&\p{L}\p{N}_])#([\p{L}\p{N}](?:[\p{L}\p{N}_.-]*[\p{L}\p{N}])?)/gu;
 const descHtml = (s) =>
   esc(s).replace(TAG_RE, (m, t) => `<a class="tag-link" href="#/t/${encodeURIComponent(t)}">${m}</a>`);
 
@@ -307,7 +309,7 @@ lightbox.addEventListener("touchend", (e) => {
 // ---------------------------------------------------------------------------
 // Tag chips input
 // ---------------------------------------------------------------------------
-const _NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$/;
+const _NAME_RE = /^[\p{L}\p{N}][\p{L}\p{N} _.-]{0,63}$/u;
 
 function createChipsInput(container, initial = [], suggestions = []) {
   const chips = [];
@@ -338,18 +340,18 @@ function createChipsInput(container, initial = [], suggestions = []) {
       const el = document.createElement("span");
       el.className = "chip";
       el.innerHTML = `${esc(name)}<button type="button" aria-label="Remove">×</button>`;
-      el.querySelector("button").addEventListener("click", () => { chips.splice(i, 1); seen.delete(name.toLowerCase()); render(); });
+      el.querySelector("button").addEventListener("click", () => { chips.splice(i, 1); seen.delete(foldTag(name)); render(); });
       container.insertBefore(el, input);
     });
-    const free = suggestions.filter((s) => !seen.has(s.toLowerCase()));
+    const free = suggestions.filter((s) => !seen.has(foldTag(s)));
     suggestRow.innerHTML = free.length
       ? free.map((s) => `<button type="button" class="chip add" data-name="${esc(s)}">＋ ${esc(s)}</button>`).join("")
       : "";
   }
   function add(raw) {
-    const name = (raw || "").trim();
-    if (!name || !_NAME_RE.test(name) || seen.has(name.toLowerCase())) return;
-    chips.push(name); seen.add(name.toLowerCase()); render();
+    const name = (raw || "").trim().normalize(); // NFC, matches server
+    if (!name || !_NAME_RE.test(name) || seen.has(foldTag(name))) return;
+    chips.push(name); seen.add(foldTag(name)); render();
   }
 
   container.innerHTML = "";
@@ -701,8 +703,10 @@ async function mountPhotoGrid(photos, admin, onChanged) {
   const ready = photos.filter((p) => p.ready);
   const selectedPhotos = () => ready.filter((p) => selected.has(p.id));
 
-  const names = [...new Set([...(await safeTagNames()), ...photos.flatMap((p) => p.categories || [])])]
-    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const byFold = new Map(); // fold key -> first-seen spelling
+  [...(await safeTagNames()), ...photos.flatMap((p) => p.categories || [])]
+    .forEach((n) => { if (!byFold.has(foldTag(n))) byFold.set(foldTag(n), n); });
+  const names = [...byFold.values()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   const chipHtml = (n) => `<button type="button" class="tag-chip off" data-name="${esc(n)}">${esc(n)}</button>`;
 
   bar.hidden = false;
@@ -757,8 +761,8 @@ async function mountPhotoGrid(photos, admin, onChanged) {
     try {
       for (const p of sel) {
         const cats = p.categories || [];
-        if (cats.includes(name) === add) continue;
-        const next = add ? [...cats, name].sort() : cats.filter((c) => c !== name);
+        if (cats.some((c) => foldTag(c) === foldTag(name)) === add) continue;
+        const next = add ? [...cats, name].sort() : cats.filter((c) => foldTag(c) !== foldTag(name));
         await fetchAuthed(`/api/admin/photos/${encodeURIComponent(p.id)}`, {
           method: "PUT",
           headers: { "content-type": "application/json" },
@@ -795,7 +799,7 @@ async function mountPhotoGrid(photos, admin, onChanged) {
     const name = tagNew.value.trim();
     if (!_NAME_RE.test(name)) return;
     tagNew.value = "";
-    if (!names.some((n) => n.toLowerCase() === name.toLowerCase())) {
+    if (!names.some((n) => foldTag(n) === foldTag(name))) {
       names.push(name);
       tagNew.insertAdjacentHTML("beforebegin", chipHtml(name));
     }
@@ -838,14 +842,24 @@ async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
   const selected = new Set();
 
   async function apply(rebuild) {
-    const filtered = photos.filter((p) => [...selected].every((t) => photoTags(p).includes(t)));
+    // `selected` and data-tag hold fold keys; chips display the first-seen spelling.
+    const filtered = photos.filter((p) => [...selected].every((k) => photoTags(p).some((x) => foldTag(x) === k)));
     if (box) {
-      const counts = new Map();
-      filtered.forEach((p) => photoTags(p).forEach((t) => { if (t !== baseTag) counts.set(t, (counts.get(t) || 0) + 1); }));
-      const names = [...counts.keys()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-      box.innerHTML = names.map((t) => selected.has(t)
-        ? `<button type="button" class="chip on" data-tag="${esc(t)}" title="Remove filter">${esc(t)} ×</button>`
-        : `<button type="button" class="chip" data-tag="${esc(t)}" title="Narrow to photos also tagged “${esc(t)}”">${esc(t)} <span class="count">${counts.get(t)}</span></button>`).join("");
+      const counts = new Map(); // fold key -> { name, n }
+      filtered.forEach((p) => photoTags(p).forEach((t) => {
+        const k = foldTag(t);
+        if (k === foldTag(baseTag)) return;
+        const e = counts.get(k) || { name: t, n: 0 };
+        e.n += 1;
+        counts.set(k, e);
+      }));
+      const keys = [...counts.keys()].sort((a, b) => counts.get(a).name.toLowerCase().localeCompare(counts.get(b).name.toLowerCase()));
+      box.innerHTML = keys.map((k) => {
+        const { name, n } = counts.get(k);
+        return selected.has(k)
+          ? `<button type="button" class="chip on" data-tag="${esc(k)}" title="Remove filter">${esc(name)} ×</button>`
+          : `<button type="button" class="chip" data-tag="${esc(k)}" title="Narrow to photos also tagged “${esc(name)}”">${esc(name)} <span class="count">${n}</span></button>`;
+      }).join("");
     }
     if (rebuild) {
       const grid = document.querySelector(".photo-grid");
@@ -1038,7 +1052,7 @@ async function renderTags() {
         if (!newName || newName === name) return;
         // Renaming onto an existing name merges: the server DELETEs the old tag
         // and ADDs the new one to a set, so duplicates collapse for free.
-        const target = cat.tags.find((c) => c.name.toLowerCase() === newName.toLowerCase());
+        const target = cat.tags.find((c) => foldTag(c.name) === foldTag(newName));
         if (target && !confirm(`"${target.name}" already exists — merge "${name}" into it?`)) return;
         try {
           await fetchAuthed(`/api/admin/tags/${encodeURIComponent(name)}`, {
