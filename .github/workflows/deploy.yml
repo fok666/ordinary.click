@@ -6,6 +6,11 @@ on:
     paths:
       - 'site/**'
   workflow_dispatch:
+    inputs:
+      invalidate_images:
+        description: 'Also invalidate cached images (full /* invalidation)'
+        type: boolean
+        default: false
 
 permissions:
   id-token: write   # required for OIDC
@@ -43,7 +48,16 @@ jobs:
             --cache-control "public,max-age=60" \
             --exclude "*" --include "*.html"
 
-      - name: Invalidate CloudFront
+      - name: Invalidate CloudFront (html/js/css)
+        run: |
+          # CloudFront wildcards are trailing-only, so enumerate the files
+          paths=$(cd site && find . -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' \) | sed 's|^\.||')
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths $paths "/"
+
+      - name: Invalidate CloudFront (images)
+        if: inputs.invalidate_images
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${DISTRIBUTION_ID}" \
