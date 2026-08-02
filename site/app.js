@@ -1,15 +1,18 @@
 // ordinary.click client-side app.
 //
 // Tag-based model:
-//   - Photos belong to any number of overlapping categories (tags).
+//   - Photos carry any number of overlapping tags. A photo's effective tags
+//     are its stored set plus any #hashtags in its description (the server
+//     merges the two into `photo.tags`; `photo.categories` is the stored,
+//     editable set — the wire/DB field name is legacy).
 //   - Photos may belong to one first-class collection (a curated, titled set).
 //   - Content-hash ids give free dedup: re-uploading a photo merges its new
-//     categories/collection into the existing record.
+//     tags/collection into the existing record.
 //
 // Routes (hash-based):
 //   #/                      cover / home
-//   #/categories            all categories
-//   #/c/<category>          one category
+//   #/tags                  all tags            (#/categories = legacy alias)
+//   #/t/<tag>               one tag             (#/c/<tag> = legacy alias)
 //   #/collections           all collections
 //   #/collection/<id>       one collection
 //   #/map                   geo-tagged photos
@@ -25,6 +28,15 @@ const authNav = document.getElementById("auth-nav");
 // ---------------------------------------------------------------------------
 const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC[c]);
+
+// Effective tags of a photo: server-merged stored set + description hashtags.
+const photoTags = (p) => p.tags || p.categories || [];
+
+// "#cars" in a description becomes a link to the cars tag. Mirrors the server
+// regex. Escape first — the lookbehind also skips esc()'s "&#39;" entities.
+const TAG_RE = /(?<![&\w])#([A-Za-z0-9](?:[A-Za-z0-9_.-]*[A-Za-z0-9])?)/g;
+const descHtml = (s) =>
+  esc(s).replace(TAG_RE, (m, t) => `<a class="tag-link" href="#/t/${encodeURIComponent(t)}">${m}</a>`);
 
 // ---------------------------------------------------------------------------
 // Theme toggle (light default, dark toggle, system fallback)
@@ -194,7 +206,7 @@ async function fetchAuthed(path, opts = {}) {
   });
 }
 
-// Catalog cache (categories + collections + totals) — powers home + selects.
+// Catalog cache (tags + collections + totals) — powers home + selects.
 let catalogPromise = null;
 function getCatalog(force = false) {
   if (force) catalogPromise = null;
@@ -254,10 +266,10 @@ function showLightbox() {
   });
 
   let html = "";
-  if (item.description) html += `<div class="lb-desc">${esc(item.description)}</div>`;
-  if (item.categories?.length) {
-    html += `<div class="lb-row">` + item.categories.map((c) =>
-      `<a class="chip" href="#/c/${encodeURIComponent(c)}">${esc(c)}</a>`).join("") + `</div>`;
+  if (item.description) html += `<div class="lb-desc">${descHtml(item.description)}</div>`;
+  if (photoTags(item).length) {
+    html += `<div class="lb-row">` + photoTags(item).map((c) =>
+      `<a class="chip" href="#/t/${encodeURIComponent(c)}">${esc(c)}</a>`).join("") + `</div>`;
   }
   if (item.collectionId) {
     html += `<div class="lb-row"><a class="chip" href="#/collection/${encodeURIComponent(item.collectionId)}">◆ collection</a></div>`;
@@ -293,24 +305,24 @@ lightbox.addEventListener("touchend", (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// Category chips input
+// Tag chips input
 // ---------------------------------------------------------------------------
 const _NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$/;
 
 function createChipsInput(container, initial = [], suggestions = []) {
   const chips = [];
   const seen = new Set();
-  const listId = `cat-suggest-${Math.random().toString(36).slice(2)}`;
+  const listId = `tag-suggest-${Math.random().toString(36).slice(2)}`;
 
   const input = document.createElement("input");
   input.type = "text";
-  input.placeholder = "add category…";
+  input.placeholder = "add tag…";
   input.setAttribute("list", listId);
   const datalist = document.createElement("datalist");
   datalist.id = listId;
   datalist.innerHTML = suggestions.map((s) => `<option value="${esc(s)}"></option>`).join("");
 
-  // One-click row of known categories not yet on this photo.
+  // One-click row of known tags not yet on this photo.
   container.parentElement.querySelectorAll(".chip-suggest").forEach((n) => n.remove());
   const suggestRow = document.createElement("div");
   suggestRow.className = "chip-suggest";
@@ -352,7 +364,7 @@ function createChipsInput(container, initial = [], suggestions = []) {
   });
   input.addEventListener("blur", () => { if (input.value.trim()) { add(input.value); input.value = ""; } });
 
-  return { getCategories: () => [...chips] };
+  return { getTags: () => [...chips] };
 }
 
 function collectionOptions(collections, selectedId) {
@@ -502,9 +514,10 @@ async function openMetaModal(photo, onSaved) {
 
   let collections = [];
   try { collections = (await getCatalog()).collections || []; } catch { /* ignore */ }
-  const knownCats = (await safeCategoryNames());
+  const knownTags = (await safeTagNames());
   metaCollection.innerHTML = collectionOptions(collections, photo.collectionId || "");
-  metaChips = createChipsInput(document.getElementById("meta-categories"), photo.categories || [], knownCats);
+  // Chips edit the *stored* set only — hashtag tags are edited via the description.
+  metaChips = createChipsInput(document.getElementById("meta-categories"), photo.categories || [], knownTags);
 
   metaModal.hidden = false;
   if (metaPicker) metaPicker.destroy();
@@ -527,7 +540,7 @@ metaForm.addEventListener("submit", async (e) => {
   const { photo, onSaved } = metaEditCallback;
   const body = {
     description: metaDesc.value,
-    categories: metaChips ? metaChips.getCategories() : (photo.categories || []),
+    categories: metaChips ? metaChips.getTags() : (photo.categories || []), // wire field name is legacy
     collectionId: metaCollection.value || null,
   };
   if (metaLat.value !== "" && metaLng.value !== "") {
@@ -551,8 +564,8 @@ metaForm.addEventListener("submit", async (e) => {
   }
 });
 
-async function safeCategoryNames() {
-  try { return (await getCatalog()).categories.map((c) => c.name); } catch { return []; }
+async function safeTagNames() {
+  try { return (await getCatalog()).tags.map((c) => c.name); } catch { return []; }
 }
 
 // ---------------------------------------------------------------------------
@@ -628,7 +641,7 @@ function photoTile(photo, i, admin) {
     return `<div class="photo-item pending"><div class="pending-badge">processing…</div></div>`;
   }
   const caption = photo.description
-    ? esc(photo.description)
+    ? descHtml(photo.description)
     : (photo.latitude != null ? `📍 ${Number(photo.latitude).toFixed(2)}, ${Number(photo.longitude).toFixed(2)}` : "");
   return `
     <div class="photo-item" data-index="${i}" data-id="${esc(photo.id)}">
@@ -688,7 +701,7 @@ async function mountPhotoGrid(photos, admin, onChanged) {
   const ready = photos.filter((p) => p.ready);
   const selectedPhotos = () => ready.filter((p) => selected.has(p.id));
 
-  const names = [...new Set([...(await safeCategoryNames()), ...photos.flatMap((p) => p.categories || [])])]
+  const names = [...new Set([...(await safeTagNames()), ...photos.flatMap((p) => p.categories || [])])]
     .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
   const chipHtml = (n) => `<button type="button" class="tag-chip off" data-name="${esc(n)}">${esc(n)}</button>`;
 
@@ -811,8 +824,54 @@ async function mountPhotoGrid(photos, admin, onChanged) {
   syncBar();
 }
 
-// Upload panel shared by category & collection pages — button + modal.
-function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
+// ---------------------------------------------------------------------------
+// Tag drill-down — additive AND filter over an already-loaded photo list.
+// Chips show the tags present in the current (filtered) set, so every click
+// narrows to a non-empty result; clicking a selected chip widens again.
+// `baseTag` (a tag page's own tag) is on every photo and is left out.
+// Owns the grid wiring: pages call this INSTEAD of mountPhotoGrid.
+// ---------------------------------------------------------------------------
+const DRILLDOWN_HTML = `<div id="tag-drilldown" class="chip-row drilldown"></div>`;
+
+async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
+  const box = document.getElementById("tag-drilldown");
+  const selected = new Set();
+
+  async function apply(rebuild) {
+    const filtered = photos.filter((p) => [...selected].every((t) => photoTags(p).includes(t)));
+    if (box) {
+      const counts = new Map();
+      filtered.forEach((p) => photoTags(p).forEach((t) => { if (t !== baseTag) counts.set(t, (counts.get(t) || 0) + 1); }));
+      const names = [...counts.keys()].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      box.innerHTML = names.map((t) => selected.has(t)
+        ? `<button type="button" class="chip on" data-tag="${esc(t)}" title="Remove filter">${esc(t)} ×</button>`
+        : `<button type="button" class="chip" data-tag="${esc(t)}" title="Narrow to photos also tagged “${esc(t)}”">${esc(t)} <span class="count">${counts.get(t)}</span></button>`).join("");
+    }
+    if (rebuild) {
+      const grid = document.querySelector(".photo-grid");
+      if (grid) {
+        // Fresh node, so mountPhotoGrid's listeners don't stack up on re-filter.
+        const next = document.createElement("div");
+        next.className = "photo-grid";
+        next.innerHTML = filtered.map((p, i) => photoTile(p, i, admin)).join("");
+        grid.replaceWith(next);
+      }
+    }
+    await mountPhotoGrid(filtered, admin, onChanged);
+  }
+
+  box?.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-tag]");
+    if (!chip) return;
+    if (selected.has(chip.dataset.tag)) selected.delete(chip.dataset.tag);
+    else selected.add(chip.dataset.tag);
+    apply(true);
+  });
+  await apply(false);
+}
+
+// Upload panel shared by tag & collection pages — button + modal.
+function uploadPanelHtml(presetTags, presetCollectionId, collections) {
   return `
     <div class="page-actions"><button id="upload-open" class="primary">＋ Upload photos</button></div>
     <div id="upload-modal" class="modal" hidden>
@@ -823,7 +882,7 @@ function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
           <input type="file" id="upload-files" accept="image/*" multiple required />
         </div>
         <div class="field">
-          <span class="field-label">Categories</span>
+          <span class="field-label">Tags</span>
           <div class="chips-input" id="upload-categories"></div>
         </div>
         <label class="field">Collection
@@ -858,13 +917,13 @@ function uploadPanelHtml(presetCategories, presetCollectionId, collections) {
     </div>`;
 }
 
-async function wireUploadPanel(presetCategories, onDone) {
+async function wireUploadPanel(presetTags, onDone) {
   const modal = document.getElementById("upload-modal");
   document.getElementById("upload-open").addEventListener("click", () => { modal.hidden = false; });
   document.getElementById("upload-cancel").addEventListener("click", () => { modal.hidden = true; });
   modal.addEventListener("click", (e) => { if (e.target === modal) modal.hidden = true; });
-  const knownCats = await safeCategoryNames();
-  const chips = createChipsInput(document.getElementById("upload-categories"), presetCategories || [], knownCats);
+  const knownTags = await safeTagNames();
+  const chips = createChipsInput(document.getElementById("upload-categories"), presetTags || [], knownTags);
   const picker = attachLocationPicker(
     document.getElementById("upload-location-picker"),
     document.getElementById("upload-lat"),
@@ -875,7 +934,7 @@ async function wireUploadPanel(presetCategories, onDone) {
     const files = document.getElementById("upload-files").files;
     const log = document.getElementById("upload-progress");
     const meta = {
-      categories: chips.getCategories(),
+      categories: chips.getTags(), // wire field name is legacy
       collectionId: document.getElementById("upload-collection").value || null,
       description: document.getElementById("upload-desc").value || "",
     };
@@ -898,7 +957,7 @@ async function renderCover() {
   try {
     const cat = await getCatalog();
     const covers = [
-      ...cat.categories.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.name, kind: "category", href: `#/c/${encodeURIComponent(c.name)}` })),
+      ...cat.tags.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.name, kind: "tag", href: `#/t/${encodeURIComponent(c.name)}` })),
       ...cat.collections.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.title, kind: "collection", href: `#/collection/${encodeURIComponent(c.id)}` })),
     ];
     const hero = covers.length ? covers[Math.floor(Math.random() * covers.length)] : null;
@@ -919,12 +978,12 @@ async function renderCover() {
       <section class="cover-intro">
         <h2>Welcome</h2>
         <p>${t.photos
-          ? `A quiet archive of <strong>${t.photos}</strong> photo${t.photos === 1 ? "" : "s"}, across <strong>${t.categories}</strong> categor${t.categories === 1 ? "y" : "ies"} and <strong>${t.collections}</strong> collection${t.collections === 1 ? "" : "s"}.`
+          ? `A quiet archive of <strong>${t.photos}</strong> photo${t.photos === 1 ? "" : "s"}, across <strong>${t.tags}</strong> tag${t.tags === 1 ? "" : "s"} and <strong>${t.collections}</strong> collection${t.collections === 1 ? "" : "s"}.`
           : `Nothing here yet. Sign in to upload your first photos.`}</p>
       </section>
       ${heroHtml}
       <!--div class="quick-links">
-        <a class="quick-link" href="#/categories"><span class="ql-icon">🏷️</span><strong>Categories</strong><span>Browse by overlapping themes</span></a>
+        <a class="quick-link" href="#/tags"><span class="ql-icon">🏷️</span><strong>Tags</strong><span>Browse by overlapping themes</span></a>
         <a class="quick-link" href="#/collections"><span class="ql-icon">◆</span><strong>Collections</strong><span>Curated sets that belong together</span></a>
         <a class="quick-link" href="#/map"><span class="ql-icon">🗺️</span><strong>Map</strong><span>Explore geo-tagged photos</span></a>
       </div-->
@@ -936,106 +995,103 @@ async function renderCover() {
 }
 
 // ---------------------------------------------------------------------------
-// Categories index
+// Tags index
 // ---------------------------------------------------------------------------
-function categoryCard(c, admin) {
+function tagCard(c, admin) {
   const cover = c.cover
     ? `<img loading="lazy" decoding="async" src="${esc(c.cover)}" alt="${esc(c.name)}" data-fb="${esc(c.coverFallback || c.cover)}"
          onerror="if(this.dataset.done!=='1'){this.dataset.done='1';this.src=this.dataset.fb;}">`
     : `<div class="placeholder">🏷️</div>`;
   return `
-    <a class="cover-card" href="#/c/${encodeURIComponent(c.name)}">
+    <a class="cover-card" href="#/t/${encodeURIComponent(c.name)}">
       ${cover}
       ${admin ? `<div class="card-admin">
-        <button class="cat-rename" data-name="${esc(c.name)}" title="Rename" onclick="event.preventDefault();">✏️</button>
-        <button class="cat-delete danger" data-name="${esc(c.name)}" title="Delete" onclick="event.preventDefault();">🗑</button>
+        <button class="tag-rename" data-name="${esc(c.name)}" title="Rename" onclick="event.preventDefault();">✏️</button>
+        <button class="tag-delete danger" data-name="${esc(c.name)}" title="Delete" onclick="event.preventDefault();">🗑</button>
       </div>` : ""}
       <span class="label"><strong>${esc(c.name)}</strong><span class="count">${c.count}</span></span>
     </a>`;
 }
 
-async function renderCategories() {
-  markActiveNav("/categories");
-  render(`<section class="loading"><p>Loading categories…</p></section>`);
+async function renderTags() {
+  markActiveNav("/tags");
+  render(`<section class="loading"><p>Loading tags…</p></section>`);
   try {
     const cat = await getCatalog(true);
     const admin = isLoggedIn();
     const collections = admin ? cat.collections : [];
-    const cards = cat.categories.map((c) => categoryCard(c, admin)).join("");
+    const cards = cat.tags.map((c) => tagCard(c, admin)).join("");
     render(`
-      <div class="page-head"><h2>Categories</h2><p>${cat.categories.length
-        ? "Overlapping themes — a photo can appear in several." : "No categories yet."}</p></div>
+      <div class="page-head"><h2>Tags</h2><p>${cat.tags.length
+        ? "Overlapping themes — a photo can carry several. #hashtags in descriptions count too." : "No tags yet."}</p></div>
       ${admin ? uploadPanelHtml([], "", collections) : ""}
-      ${cat.categories.length ? `<div class="card-grid">${cards}</div>`
+      ${cat.tags.length ? `<div class="card-grid">${cards}</div>`
         : `<section class="empty"><p>${admin
-            ? "Upload a photo and tag it to create your first category."
-            : "No categories yet."}</p></section>`}
+            ? "Upload a photo and tag it to create your first tag."
+            : "No tags yet."}</p></section>`}
     `);
     if (admin) {
-      await wireUploadPanel([], () => renderCategories());
-      document.querySelectorAll(".cat-rename").forEach((btn) => btn.addEventListener("click", async () => {
+      await wireUploadPanel([], () => renderTags());
+      document.querySelectorAll(".tag-rename").forEach((btn) => btn.addEventListener("click", async () => {
         const name = btn.dataset.name;
-        const newName = (prompt(`Rename "${name}" — or type an existing category name to merge the two:`, name) || "").trim();
+        const newName = (prompt(`Rename "${name}" — or type an existing tag name to merge the two:`, name) || "").trim();
         if (!newName || newName === name) return;
         // Renaming onto an existing name merges: the server DELETEs the old tag
         // and ADDs the new one to a set, so duplicates collapse for free.
-        const target = cat.categories.find((c) => c.name.toLowerCase() === newName.toLowerCase());
+        const target = cat.tags.find((c) => c.name.toLowerCase() === newName.toLowerCase());
         if (target && !confirm(`"${target.name}" already exists — merge "${name}" into it?`)) return;
         try {
-          await fetchAuthed(`/api/admin/categories/${encodeURIComponent(name)}`, {
+          await fetchAuthed(`/api/admin/tags/${encodeURIComponent(name)}`, {
             method: "PUT", headers: { "content-type": "application/json" },
             body: JSON.stringify({ newName: target ? target.name : newName }),
           });
-          renderCategories();
+          renderTags();
         } catch (err) { alert(`Rename failed: ${err.message}`); }
       }));
-      document.querySelectorAll(".cat-delete").forEach((btn) => btn.addEventListener("click", async () => {
+      document.querySelectorAll(".tag-delete").forEach((btn) => btn.addEventListener("click", async () => {
         const name = btn.dataset.name;
-        if (!confirm(`Remove category "${name}" from all photos? (Photos are kept.)`)) return;
+        if (!confirm(`Remove tag "${name}" from all photos? (Photos are kept; #hashtags in descriptions stay.)`)) return;
         try {
-          await fetchAuthed(`/api/admin/categories/${encodeURIComponent(name)}`, { method: "DELETE" });
-          renderCategories();
+          await fetchAuthed(`/api/admin/tags/${encodeURIComponent(name)}`, { method: "DELETE" });
+          renderTags();
         } catch (err) { alert(`Delete failed: ${err.message}`); }
       }));
     }
   } catch (err) {
-    render(`<section class="empty"><p>Couldn't load categories: ${esc(err.message)}</p></section>`);
+    render(`<section class="empty"><p>Couldn't load tags: ${esc(err.message)}</p></section>`);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Single category
+// Single tag
 // ---------------------------------------------------------------------------
-async function renderCategory(name) {
-  markActiveNav("/categories");
+async function renderTag(name) {
+  markActiveNav("/tags");
   const admin = isLoggedIn();
-  render(`<div class="page-head"><div class="breadcrumb"><a href="#/categories">Categories</a> / ${esc(name)}</div><h2>${esc(name)}</h2></div><section class="loading"><p>Loading…</p></section>`);
+  render(`<div class="page-head"><div class="breadcrumb"><a href="#/tags">Tags</a> / ${esc(name)}</div><h2>${esc(name)}</h2></div><section class="loading"><p>Loading…</p></section>`);
   try {
     const bust = admin ? `?t=${Date.now()}` : "";
-    const data = await fetchJSON(`/api/categories/${encodeURIComponent(name)}${bust}`);
+    const data = await fetchJSON(`/api/tags/${encodeURIComponent(name)}${bust}`);
     const photos = data.images;
     const collections = admin ? (await getCatalog()).collections : [];
     const tiles = photos.map((p, i) => photoTile(p, i, admin)).join("");
-    const siblings = await safeCategoryNames();
-    const catNav = siblings.length > 1 ? `<div class="chip-row cat-nav">${siblings.map((c) =>
-      `<a class="chip${c === name ? " on" : ""}" href="#/c/${encodeURIComponent(c)}">${esc(c)}</a>`).join("")}</div>` : "";
 
     render(`
       <div class="page-head">
-        <div class="breadcrumb"><a href="#/categories">Categories</a> / ${esc(name)}</div>
+        <div class="breadcrumb"><a href="#/tags">Tags</a> / ${esc(name)}</div>
         <h2>${esc(name)}</h2>
         <p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>
-        ${catNav}
+        ${DRILLDOWN_HTML}
       </div>
       ${admin ? uploadPanelHtml([name], "", collections) : ""}
       ${admin && photos.length ? TAG_BAR_HTML : ""}
-      ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos in this category yet.</p></section>`}
+      ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos with this tag yet.</p></section>`}
     `);
 
-    await mountPhotoGrid(photos, admin, () => renderCategory(name));
-    if (admin) await wireUploadPanel([name], () => renderCategory(name));
+    await mountDrilldown(photos, admin, () => renderTag(name), name);
+    if (admin) await wireUploadPanel([name], () => renderTag(name));
   } catch (err) {
-    render(`<section class="empty"><a class="breadcrumb" href="#/categories">← Categories</a><p>Couldn't load category: ${esc(err.message)}</p></section>`);
+    render(`<section class="empty"><a class="breadcrumb" href="#/tags">← Tags</a><p>Couldn't load tag: ${esc(err.message)}</p></section>`);
   }
 }
 
@@ -1109,13 +1165,14 @@ async function renderCollection(id) {
       <div class="page-head">
         <div class="breadcrumb"><a href="#/collections">Collections</a> / ${esc(data.title)}</div>
         <h2>${esc(data.title)}</h2>
-        ${data.description ? `<p>${esc(data.description)}</p>` : `<p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>`}
+        ${data.description ? `<p>${descHtml(data.description)}</p>` : `<p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>`}
+        ${DRILLDOWN_HTML}
       </div>
       ${admin ? uploadPanelHtml([], id, [{ id: data.id, title: data.title }]) : ""}
       ${admin && photos.length ? TAG_BAR_HTML : ""}
       ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos in this collection yet.</p></section>`}
     `);
-    await mountPhotoGrid(photos, admin, () => renderCollection(id));
+    await mountDrilldown(photos, admin, () => renderCollection(id));
     if (admin) await wireUploadPanel([], () => renderCollection(id));
   } catch (err) {
     render(`<section class="empty"><a class="breadcrumb" href="#/collections">← Collections</a><p>Couldn't load collection: ${esc(err.message)}</p></section>`);
@@ -1205,13 +1262,14 @@ async function renderNearby(lat, lng, km) {
         <p>${photos.length} photo${photos.length === 1 ? "" : "s"} within ${km} km —
           <a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=12/${lat}/${lng}" target="_blank" rel="noopener">see on OSM</a></p>
         <div class="chip-row near-radii">${chips}</div>
+        ${DRILLDOWN_HTML}
       </div>
       ${admin && photos.length ? TAG_BAR_HTML : ""}
       ${photos.length
         ? `<div class="photo-grid">${photos.map((p, i) => photoTile(p, i, admin)).join("")}</div>`
         : `<section class="empty"><p>No photos within ${km} km. Try a wider radius.</p></section>`}
     `);
-    await mountPhotoGrid(photos, admin, () => renderNearby(lat, lng, km));
+    await mountDrilldown(photos, admin, () => renderNearby(lat, lng, km));
   } catch (err) {
     render(`<section class="empty"><a class="breadcrumb" href="#/map">← Map</a><p>Couldn't load nearby photos: ${esc(err.message)}</p></section>`);
   }
@@ -1220,11 +1278,12 @@ async function renderNearby(lat, lng, km) {
 // then tag/collection links and a radius search around the marker.
 function mapPopupHtml(img, collTitles) {
   const lat = Number(img.latitude), lng = Number(img.longitude);
-  const link = img.categories?.[0]
-    ? `#/c/${encodeURIComponent(img.categories[0])}`
+  const tags = photoTags(img);
+  const link = tags[0]
+    ? `#/t/${encodeURIComponent(tags[0])}`
     : (img.collectionId ? `#/collection/${encodeURIComponent(img.collectionId)}` : "#/");
   const links = [
-    ...(img.categories || []).map((c) => `<a class="chip" href="#/c/${encodeURIComponent(c)}">${esc(c)}</a>`),
+    ...tags.map((c) => `<a class="chip" href="#/t/${encodeURIComponent(c)}">${esc(c)}</a>`),
     img.collectionId
       ? `<a class="chip" href="#/collection/${encodeURIComponent(img.collectionId)}">◆ ${esc(collTitles[img.collectionId] || "collection")}</a>`
       : "",
@@ -1233,7 +1292,7 @@ function mapPopupHtml(img, collTitles) {
     <div class="map-popup">
       <a href="${link}" class="map-popup-thumb"><img src="${esc(img.thumb)}" alt="${esc(img.filename)}" loading="lazy" /></a>
       <div class="map-popup-info">
-        <div class="map-popup-desc">${esc(img.description || img.filename)}</div>
+        <div class="map-popup-desc">${img.description ? descHtml(img.description) : esc(img.filename)}</div>
         ${links ? `<div class="map-popup-links">${links}</div>` : ""}
         <a class="map-popup-explore" href="#/near/${lat.toFixed(5)},${lng.toFixed(5)},${NEAR_DEFAULT_KM}">🧭 Explore this place</a>
       </div>
@@ -1278,20 +1337,20 @@ async function renderMap() {
 // ---------------------------------------------------------------------------
 function route() {
   const hash = location.hash.replace(/^#/, "") || "/";
-  if (hash === "/categories") return renderCategories();
+  if (hash === "/tags" || hash === "/categories") return renderTags();
   if (hash === "/collections") return renderCollections();
   if (hash === "/map") return renderMap();
   let m = hash.match(/^\/near\/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/);
   if (m) return renderNearby(Number(m[1]), Number(m[2]), Number(m[3]));
-  m = hash.match(/^\/c\/(.+)$/);
-  if (m) return renderCategory(decodeURIComponent(m[1]));
+  m = hash.match(/^\/(?:t|c)\/(.+)$/);
+  if (m) return renderTag(decodeURIComponent(m[1]));
   m = hash.match(/^\/collection\/(.+)$/);
   if (m) return renderCollection(decodeURIComponent(m[1]));
   return renderCover();
 }
 
 window.addEventListener("hashchange", () => {
-  // In-lightbox links (category chips, nearby) navigate under the overlay —
+  // In-lightbox links (tag chips, nearby) navigate under the overlay —
   // close it and reset scroll so the new page is actually visible.
   if (!lightbox.hidden) closeLightbox();
   scrollTo(0, 0);
