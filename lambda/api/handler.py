@@ -1,20 +1,27 @@
 """Gallery API Lambda.
 
-Tag-based data model. A photo is stored *once* and can belong to any number
-of overlapping categories (tags) and optionally to a single curated
-collection. All membership + metadata lives in one DynamoDB table; S3 only
+Tag-based data model. A photo is stored *once* and can carry any number of
+overlapping tags and optionally one curated collection. A photo's effective
+tags are the union of its stored tag set and any #hashtags in its
+description. All membership + metadata lives in one DynamoDB table; S3 only
 stores the image bytes.
+
+ponytail: the DynamoDB attribute and the JSON wire field are still named
+`categories` — renaming them means a data migration for zero user-visible
+gain. Everything above the wire says "tags".
 
 Public endpoints (cached at CloudFront):
 
     GET    /api/health                        -> { "status": "ok" }
     GET    /api/config                        -> Cognito client config for the SPA
-    GET    /api/catalog                        -> { categories, collections, totals }
-    GET    /api/categories                    -> { "categories": [...] }
-    GET    /api/categories/<name>             -> { "name": ..., "images": [...] }
+    GET    /api/catalog                        -> { tags, collections, totals }
+    GET    /api/tags                          -> { "tags": [...] }
+    GET    /api/tags/<name>                   -> { "name": ..., "images": [...] }
     GET    /api/collections                   -> { "collections": [...] }
     GET    /api/collections/<id>              -> { "id", "title", "images": [...] }
     GET    /api/geo                            -> { "images": [...] }  (all geo-tagged)
+
+`categories` is accepted as a path alias for `tags` so old links keep working.
 
 Admin endpoints (require a valid Cognito JWT — enforced by API Gateway *and*
 re-checked here, see `_jwt_claims`):
@@ -25,8 +32,8 @@ re-checked here, see `_jwt_claims`):
     POST   /api/admin/collections             -> create a collection
     PUT    /api/admin/collections/<id>        -> update a collection
     DELETE /api/admin/collections/<id>        -> delete a collection (unlinks photos)
-    PUT    /api/admin/categories/<name>       -> rename a category across all photos
-    DELETE /api/admin/categories/<name>       -> remove a category from all photos
+    PUT    /api/admin/tags/<name>             -> rename a stored tag across all photos
+    DELETE /api/admin/tags/<name>             -> remove a stored tag from all photos
 
 DynamoDB layout (single table):
 
@@ -91,10 +98,14 @@ ALLOWED_CONTENT_TYPES = set(CONTENT_TYPE_EXT)
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MiB
 PRESIGN_EXPIRES_SECONDS = 600
-MAX_CATEGORIES_PER_PHOTO = 25
+MAX_TAGS_PER_PHOTO = 25
 MAX_DESCRIPTION_LEN = 2000
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9 _.-]{0,63}$")
+# "#cars" in a description tags the photo "cars". No spaces, must end on an
+# alnum so sentence punctuation ("#cars.") stays out; the lookbehind keeps
+# "&#39;"-style entities and infix hashes ("foo#bar") from matching.
+_HASHTAG_RE = re.compile(r"(?<![&\w])#([a-zA-Z0-9](?:[a-zA-Z0-9_.-]*[a-zA-Z0-9])?)")
 _HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 _COLLECTION_ID_RE = re.compile(r"^[a-f0-9]{8,32}$")
 
@@ -169,8 +180,8 @@ def _safe_coordinate(val: Any) -> float | None:
     return f
 
 
-def _clean_categories(raw: Any) -> list[str]:
-    """Validate + de-duplicate a list of category names (order preserved)."""
+def _clean_tags(raw: Any) -> list[str]:
+    """Validate + de-duplicate a list of tag names (order preserved)."""
     if not isinstance(raw, list):
         return []
     seen: set[str] = set()
@@ -180,7 +191,7 @@ def _clean_categories(raw: Any) -> list[str]:
         if name and name not in seen:
             seen.add(name)
             out.append(name)
-        if len(out) >= MAX_CATEGORIES_PER_PHOTO:
+        if len(out) >= MAX_TAGS_PER_PHOTO:
             break
     return out
 
@@ -222,6 +233,15 @@ def _photo_key(item: dict) -> str:
     return f"{item['sk']}.{item.get('ext', 'jpg')}"
 
 
+def _photo_tags(item: dict) -> set[str]:
+    """Effective tags: the stored set plus #hashtags found in the description."""
+    tags = set(item.get("categories", set()))
+    for t in _HASHTAG_RE.findall(str(item.get("description") or "")):
+        if _NAME_RE.match(t):
+            tags.add(t)
+    return tags
+
+
 def _photo_public(item: dict) -> dict:
     obj = _photo_key(item)
     out: dict[str, Any] = {
@@ -229,7 +249,9 @@ def _photo_public(item: dict) -> dict:
         "filename": item.get("filename", obj),
         "url": _display_url(obj),
         "thumb": _thumb_url(obj),
+        # `categories` is the stored, editable set; `tags` adds description hashtags.
         "categories": sorted(item.get("categories", set())),
+        "tags": sorted(_photo_tags(item)),
         "ready": bool(item.get("ready", False)),
     }
     desc = item.get("description")
@@ -248,13 +270,13 @@ def _photo_public(item: dict) -> dict:
     return out
 
 
-def _categories_from(photos: list[dict]) -> list[dict]:
+def _tags_from(photos: list[dict]) -> list[dict]:
     cats: dict[str, dict] = {}
     for p in photos:
         if not p.get("ready"):
             continue
         obj = _photo_key(p)
-        for name in p.get("categories", set()):
+        for name in _photo_tags(p):
             entry = cats.setdefault(name, {"name": name, "count": 0, "_cover": None})
             entry["count"] += 1
             if entry["_cover"] is None:
@@ -310,26 +332,28 @@ def _collections_from(photos: list[dict], coll_items: list[dict]) -> list[dict]:
 def _catalog() -> dict:
     photos = _all_photos()
     colls = _all_collections()
-    categories = _categories_from(photos)
+    tags = _tags_from(photos)
     collections = _collections_from(photos, colls)
     ready = sum(1 for p in photos if p.get("ready"))
     return {
-        "categories": categories,
+        "tags": tags,
+        "categories": tags,  # ponytail: legacy alias for cached clients, drop later
         "collections": collections,
         "totals": {
             "photos": ready,
-            "categories": len(categories),
+            "tags": len(tags),
+            "categories": len(tags),  # ponytail: legacy alias, drop later
             "collections": len(collections),
         },
     }
 
 
-def _list_category(name: str) -> dict | None:
+def _list_tag(name: str) -> dict | None:
     safe = _safe_name(name)
     if not safe:
         return None
     photos = _all_photos()
-    matched = [p for p in photos if safe in p.get("categories", set())]
+    matched = [p for p in photos if safe in _photo_tags(p)]
     if not matched:
         return None
     imgs = [_photo_public(p) for p in matched]
@@ -445,7 +469,7 @@ def _presign_upload(body: dict) -> dict:
     ext = CONTENT_TYPE_EXT[content_type]
 
     filename = str(body.get("filename", "") or f"{hash_[:12]}.{ext}")[:160]
-    categories = _clean_categories(body.get("categories"))
+    categories = _clean_tags(body.get("categories"))
     collection_id = _safe_collection_id(body.get("collectionId")) if body.get("collectionId") else None
     description = _clean_description(body.get("description"))
     lat = _safe_coordinate(body.get("latitude"))
@@ -493,7 +517,7 @@ def _update_photo(photo_id: str, body: dict) -> dict:
     vals: dict[str, Any] = {}
 
     if "categories" in body:
-        cats = _clean_categories(body.get("categories"))
+        cats = _clean_tags(body.get("categories"))
         if cats:
             sets.append("categories = :cats")
             vals[":cats"] = set(cats)
@@ -681,9 +705,11 @@ def _delete_collection(cid: str) -> dict:
     return _response(200, {"deleted": safe})
 
 
-# --- Categories (bulk operations across photos) ----------------------------
+# --- Tags (bulk operations across photos) ----------------------------------
+# These touch the *stored* tag set only. Hashtag-derived tags live in the
+# description text and stay as written — edit the description to change them.
 
-def _rename_category(name: str, body: dict) -> dict:
+def _rename_tag(name: str, body: dict) -> dict:
     old = _safe_name(name)
     new = _safe_name(body.get("newName", ""))
     if not old or not new or not _ddb:
@@ -708,7 +734,7 @@ def _rename_category(name: str, body: dict) -> dict:
     return _response(200, {"renamed": count, "from": old, "to": new})
 
 
-def _delete_category(name: str) -> dict:
+def _delete_tag(name: str) -> dict:
     old = _safe_name(name)
     if not old or not _ddb:
         return _response(400, {"error": "invalid category name"})
@@ -762,12 +788,13 @@ def _route(method: str, path: str, body: dict | None, claims: dict | None = None
             return _response(200, _catalog(), cache_seconds=60)
         if parts == ["geo"]:
             return _response(200, {"images": _list_geotagged()}, cache_seconds=60)
-        if parts == ["categories"]:
-            return _response(200, {"categories": _categories_from(_all_photos())}, cache_seconds=60)
-        if len(parts) == 2 and parts[0] == "categories":
-            result = _list_category(unquote(parts[1]))
+        if parts == ["tags"] or parts == ["categories"]:
+            tags = _tags_from(_all_photos())
+            return _response(200, {"tags": tags, "categories": tags}, cache_seconds=60)
+        if len(parts) == 2 and parts[0] in ("tags", "categories"):
+            result = _list_tag(unquote(parts[1]))
             if result is None:
-                return _response(404, {"error": "category not found"})
+                return _response(404, {"error": "tag not found"})
             return _response(200, result, cache_seconds=60)
         if parts == ["collections"]:
             return _response(200, {"collections": _collections_from(_all_photos(), _all_collections())}, cache_seconds=60)
@@ -796,10 +823,10 @@ def _route(method: str, path: str, body: dict | None, claims: dict | None = None
             return _update_collection(unquote(admin[1]), b)
         if method == "DELETE" and len(admin) == 2 and admin[0] == "collections":
             return _delete_collection(unquote(admin[1]))
-        if method == "PUT" and len(admin) == 2 and admin[0] == "categories":
-            return _rename_category(unquote(admin[1]), b)
-        if method == "DELETE" and len(admin) == 2 and admin[0] == "categories":
-            return _delete_category(unquote(admin[1]))
+        if method == "PUT" and len(admin) == 2 and admin[0] in ("tags", "categories"):
+            return _rename_tag(unquote(admin[1]), b)
+        if method == "DELETE" and len(admin) == 2 and admin[0] in ("tags", "categories"):
+            return _delete_tag(unquote(admin[1]))
         return _response(404, {"error": "not found"})
 
     return _response(405, {"error": "method not allowed"})

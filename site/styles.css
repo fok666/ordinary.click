@@ -553,9 +553,16 @@ input[type="file"] { color: var(--muted); }
 .map-popup-explore { display: inline-block; margin-top: .45rem; font-size: .8rem; font-weight: 600; }
 .near-radii { margin-top: .7rem; }
 .chip-row .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-/* Single-row chip rail: sideways scroll beats a wall of wrapped chips. */
-.cat-nav { margin-top: .7rem; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: .2rem; }
-.cat-nav .chip { flex: 0 0 auto; }
+/* Tag drill-down: additive filter chips above a photo grid. */
+.drilldown { margin-top: .7rem; }
+.drilldown:empty { display: none; }
+button.chip { cursor: pointer; }
+button.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip .count { font-size: .72rem; color: var(--muted); }
+/* #hashtags rendered as links inside descriptions/captions. */
+.tag-link { color: inherit; font-weight: 600; text-decoration: underline; text-decoration-color: var(--accent); }
+.tag-link:hover { color: var(--accent); }
+.photo-caption a { pointer-events: auto; }
 
 /* --- Location picker ------------------------------------------------------ */
 .location-picker { width: 100%; margin-top: .25rem; }

@@ -35,6 +35,7 @@ def demo():
         ("DELETE", f"/admin/photos/{HASH}"),
         ("DELETE", f"/api//admin/photos/{HASH}"),
         ("PUT", f"/api//admin/categories/holidays"),
+        ("PUT", f"/api//admin/tags/holidays"),
     ]:
         got = call(method, path)["statusCode"]
         assert got == 401, f"{method} {path} must be 401 without claims, got {got}"
@@ -46,6 +47,15 @@ def demo():
 
     # Public reads stay public.
     assert call("GET", "/api/health")["statusCode"] == 200
+
+    # Effective tags = stored set + description #hashtags. Sentence punctuation,
+    # escaped entities ("&#39;") and infix hashes ("not#tag") must not match.
+    got = handler._photo_tags({
+        "categories": {"cars"},
+        "description": "A #Sunset drive. #v1.0 it&#39;s not#tag",
+    })
+    assert got == {"cars", "Sunset", "v1.0"}, got
+    assert handler._photo_tags({}) == set()
 
     print("ok")
 
