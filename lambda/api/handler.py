@@ -15,6 +15,7 @@ Public endpoints (cached at CloudFront):
     GET    /api/health                        -> { "status": "ok" }
     GET    /api/config                        -> Cognito client config for the SPA
     GET    /api/catalog                        -> { tags, collections, totals }
+    GET    /api/photos                        -> { "photos": [...] }
     GET    /api/tags                          -> { "tags": [...] }
     GET    /api/tags/<name>                   -> { "name": ..., "images": [...] }
     GET    /api/collections                   -> { "collections": [...] }
@@ -280,6 +281,10 @@ def _photo_public(item: dict) -> dict:
     if "width" in item and "height" in item:
         out["width"] = int(item["width"])
         out["height"] = int(item["height"])
+    if "createdAt" in item:
+        out["createdAt"] = int(item["createdAt"])
+    if "updatedAt" in item:
+        out["updatedAt"] = int(item["updatedAt"])
     return out
 
 
@@ -824,6 +829,13 @@ def _route(method: str, path: str, body: dict | None, claims: dict | None = None
             return _response(200, _config(), cache_seconds=300)
         if parts == ["catalog"]:
             return _response(200, _catalog(), cache_seconds=60)
+        if parts == ["photos"]:
+            all_p = _all_photos()
+            if not claims:
+                all_p = [p for p in all_p if p.get("ready")]
+            photos = [_photo_public(p) for p in all_p]
+            photos.sort(key=lambda x: (not x.get("ready", False), -int(x.get("createdAt") or 0), x.get("id", "")))
+            return _response(200, {"photos": photos}, cache_seconds=60 if not claims else 0)
         if parts == ["geo"]:
             return _response(200, {"images": _list_geotagged()}, cache_seconds=60)
         if parts == ["tags"] or parts == ["categories"]:

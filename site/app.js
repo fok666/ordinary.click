@@ -281,7 +281,40 @@ function getCatalog(force = false) {
   }
   return catalogPromise;
 }
-function invalidateCatalog() { catalogPromise = null; }
+
+// Photos cache (all photos with metadata) — powers timeline, latest, and search.
+let photosPromise = null;
+function getPhotos(force = false) {
+  if (force) photosPromise = null;
+  if (!photosPromise) {
+    photosPromise = fetchJSON("/api/photos")
+      .then((data) => data.photos || [])
+      .catch(async (err) => {
+        // Fallback: if /api/photos is unavailable, construct photo list from tags
+        try {
+          const cat = await getCatalog();
+          const all = [];
+          for (const t of (cat.tags || [])) {
+            try {
+              const res = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
+              all.push(...(res.images || []));
+            } catch {}
+          }
+          return Array.from(new Map(all.map((p) => [p.id, p])).values());
+        } catch {
+          photosPromise = null;
+          throw err;
+        }
+      });
+  }
+  return photosPromise;
+}
+
+function invalidatePhotos() { photosPromise = null; }
+function invalidateCatalog() {
+  catalogPromise = null;
+  photosPromise = null;
+}
 
 // ---------------------------------------------------------------------------
 // Auth nav
@@ -1234,7 +1267,7 @@ async function renderCover() {
       if (canvas) {
         initTagCloud(canvas, cat.tags, (tag) => {
           location.hash = `#/t/${encodeURIComponent(tag)}`;
-        });
+        }, { maxTags: 35 });
       }
     }
   } catch (err) {
@@ -1644,16 +1677,8 @@ async function renderLatest() {
   markActiveNav("/recent");
   render(`<div class="page-head"><h2>Latest Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
   try {
-    const cat = await getCatalog();
-    const allPhotos = [];
-    for (const t of (cat.tags || []).slice(0, 6)) {
-      try {
-        const data = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
-        allPhotos.push(...(data.images || []));
-      } catch {}
-    }
-    const unique = Array.from(new Map(allPhotos.map((p) => [p.id, p])).values());
-    const sorted = sortPhotos(unique, "date-desc");
+    const photos = await getPhotos();
+    const sorted = sortPhotos(photos, "date-desc");
     if (!sorted.length) {
       render(`<div class="page-head"><h2>Latest Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
       return;
@@ -1668,10 +1693,11 @@ async function renderLatest() {
           <a href="#/recent" class="ghost button">View Recent Timeline →</a>
         </div>
       </div>
-      <div class="photo-grid" style="max-width: 680px; margin: 1.5rem auto;">
+      <div class="photo-grid" style="max-width: 640px; margin: 1.5rem auto;">
         ${photoTile(latest, 0, isLoggedIn())}
       </div>
     `);
+
     await mountPhotoGrid([latest], isLoggedIn(), renderLatest);
   } catch (err) {
     render(`<section class="empty"><p>Couldn't load latest photo: ${esc(err.message)}</p></section>`);
@@ -1685,15 +1711,7 @@ async function renderRecent() {
   markActiveNav("/recent");
   render(`<div class="page-head"><h2>Timeline</h2><p>Loading chronological moments…</p></div><section class="loading"><p>Loading…</p></section>`);
   try {
-    const cat = await getCatalog();
-    const allPhotos = [];
-    for (const t of (cat.tags || [])) {
-      try {
-        const data = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
-        allPhotos.push(...(data.images || []));
-      } catch {}
-    }
-    const unique = Array.from(new Map(allPhotos.map((p) => [p.id, p])).values());
+    const unique = await getPhotos();
     const admin = isLoggedIn();
 
     if (!unique.length) {
@@ -1835,16 +1853,11 @@ async function renderSearch() {
   markActiveNav("/search");
   render(`<div class="page-head"><h2>Search</h2><p>Indexing catalog…</p></div><section class="loading"><p>Loading…</p></section>`);
   try {
-    const cat = await getCatalog();
-    const collTitles = await collectionTitles();
-    const allPhotos = [];
-    for (const t of (cat.tags || [])) {
-      try {
-        const data = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
-        allPhotos.push(...(data.images || []));
-      } catch {}
-    }
-    const uniquePhotos = Array.from(new Map(allPhotos.map((p) => [p.id, p])).values());
+    const [cat, collTitles, uniquePhotos] = await Promise.all([
+      getCatalog(),
+      collectionTitles(),
+      getPhotos(),
+    ]);
     const admin = isLoggedIn();
 
     const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");

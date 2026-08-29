@@ -290,6 +290,11 @@ class GalleryDevHandler(http.server.SimpleHTTPRequestHandler):
                 },
             })
 
+        # 4b. API: All photos
+        if path == "/api/photos":
+            sorted_photos = sorted(MOCK_PHOTOS, key=lambda x: x.get("createdAt", 0), reverse=True)
+            return self._send_json({"photos": sorted_photos})
+
         # 5. API: Tags list
         if path == "/api/tags" or path == "/api/categories":
             tag_counts = {}

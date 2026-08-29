@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 // Import modules to test
 import { Flags, DEFAULT_FLAGS } from "../site/flags.js";
 import { events, EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry } from "../site/plugins.js";
-import { createSpherePoints, rotatePoint, projectPoint } from "../site/tagcloud.js";
+import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags } from "../site/tagcloud.js";
 import { Favorites } from "../site/favorites.js";
 import { sortPhotos, groupPhotosByDate } from "../site/sorter.js";
 import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "../site/search.js";
@@ -309,6 +309,23 @@ test("TagCloud: projectPoint maps points with depth scale and alpha", () => {
   // Front point should be larger and more opaque than back point
   assert.ok(pFront.scale > pBack.scale, "Front point scale must be larger than back point scale");
   assert.ok(pFront.alpha > pBack.alpha, "Front point alpha must be higher than back point alpha");
+});
+
+test("TagCloud: filterCloudTags limits tag count and sorts by frequency", () => {
+  const tags = [
+    { name: "rare", count: 1 },
+    { name: "popular", count: 20 },
+    { name: "medium", count: 5 },
+    { name: "frequent", count: 15 },
+  ];
+  const limited = filterCloudTags(tags, 2);
+  assert.equal(limited.length, 2);
+  assert.equal(limited[0].name, "popular");
+  assert.equal(limited[1].name, "frequent");
+
+  // If under limit, preserves array
+  const underLimit = filterCloudTags(tags, 10);
+  assert.equal(underLimit.length, 4);
 });
 
 // ---------------------------------------------------------------------------

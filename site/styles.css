@@ -561,20 +561,27 @@ input[type="file"] { color: var(--muted); }
   z-index: 0;
 }
 .lightbox-backdrop.active { opacity: 1; }
-.lightbox > *:not(.lightbox-backdrop) { position: relative; z-index: 1; }
-.lightbox img { max-width: 94vw; max-height: 90vh; object-fit: contain; user-select: none; border-radius: 4px; transition: opacity 0.25s ease; }
+.lightbox img {
+  position: relative; z-index: 1;
+  max-width: 94vw; max-height: 90vh;
+  object-fit: contain; user-select: none;
+  border-radius: 4px; transition: opacity 0.25s ease;
+}
 .lightbox button {
-  position: absolute; background: rgba(255, 255, 255, .1); color: #fff; border: 0;
+  position: absolute; z-index: 10;
+  background: rgba(255, 255, 255, .1); color: #fff; border: 0;
   width: 48px; height: 48px; border-radius: 999px; font-size: 1.6rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 .lightbox button:hover { background: rgba(255, 255, 255, .22); color: #fff; }
 .lightbox-close { top: 1rem; right: 1rem; }
-.lightbox-fav { top: 1rem; right: 4.4rem; font-size: 1.3rem; }
+.lightbox-fav { top: 1rem; right: 4.5rem; font-size: 1.3rem; }
 .lightbox-fav.active { color: #ff4b72; text-shadow: 0 0 10px rgba(255, 75, 114, 0.6); }
 .lightbox-prev { left: 1rem; top: 50%; transform: translateY(-50%); }
 .lightbox-next { right: 1rem; top: 50%; transform: translateY(-50%); }
 .lightbox-meta {
-  position: absolute; inset: auto 0 0 0;
+  position: absolute; inset: auto 0 0 0; z-index: 10;
   padding: 1rem 1.4rem;
   background: linear-gradient(transparent, rgba(0, 0, 0, .82));
   color: #eee; font-size: .9rem; max-height: 34vh; overflow-y: auto;
@@ -728,7 +735,7 @@ input[type="file"] { color: var(--muted); }
 .tagcloud-hint { color: var(--muted); font-size: .8rem; margin-top: .2rem; }
 .tagcloud-canvas {
   display: block; margin: 0 auto; width: 100%;
-  max-width: 580px; height: 320px;
+  max-width: 780px; height: 420px;
 }
 
 /* --- Drag & Drop Upload Overlay ------------------------------------------- */
@@ -871,8 +878,13 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   .lightbox-prev, .lightbox-next { width: 36px; height: 36px; font-size: 1.2rem; }
   .lightbox-prev { left: .4rem; }
   .lightbox-next { right: .4rem; }
+  .lightbox-close, .lightbox-fav { width: 38px; height: 38px; font-size: 1.2rem; top: .6rem; }
+  .lightbox-close { right: .6rem; }
+  .lightbox-fav { right: 3.4rem; font-size: 1.1rem; }
+  .tagcloud-canvas { height: 340px; }
 }
 @media (max-width: 420px) {
   .photo-grid { columns: 2 120px; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .tagcloud-canvas { height: 280px; }
 }

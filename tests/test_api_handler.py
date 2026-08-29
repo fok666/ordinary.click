@@ -91,6 +91,21 @@ def demo():
     vis = {t["name"] for t in tags if not t.get("hidden")}
     assert vis == {"munich", "one", "bar"}, vis
 
+    # _photo_public includes createdAt and updatedAt if present
+    pub = handler._photo_public({
+        "sk": "p1",
+        "ready": True,
+        "createdAt": 1700000000,
+        "updatedAt": 1700001000,
+    })
+    assert pub["createdAt"] == 1700000000, pub
+    assert pub["updatedAt"] == 1700001000, pub
+
+    # GET /api/photos endpoint returns 200 with photos array
+    resp = call("GET", "/api/photos")
+    assert resp["statusCode"] == 200, resp
+    assert "photos" in resp["body"], resp
+
     print("ok")
 
 

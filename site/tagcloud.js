@@ -72,14 +72,30 @@ export function projectPoint(p, width, height, radius, fov = 450) {
 }
 
 /**
+ * Filter and limit tags for the 3D tag cloud to prevent dense clustering.
+ * @param {Array<{ name: string, count: number }>} tags
+ * @param {number} [maxTags=35]
+ * @returns {Array<{ name: string, count: number }>}
+ */
+export function filterCloudTags(tags, maxTags = 35) {
+  if (!Array.isArray(tags)) return [];
+  if (tags.length <= maxTags) return [...tags];
+  return [...tags].sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, maxTags);
+}
+
+/**
  * Initialize and render the interactive 3D Tag Cloud on a canvas element.
  * @param {HTMLCanvasElement} canvas
  * @param {Array<{ name: string, count: number }>} tags
  * @param {(tag: string) => void} onTagClick
+ * @param {{ maxTags?: number }} [options]
  * @returns {() => void} Cleanup/destroy function to stop animation loop and detach listeners
  */
-export function initTagCloud(canvas, tags, onTagClick) {
+export function initTagCloud(canvas, tags, onTagClick, options = {}) {
   if (!canvas || !tags || !tags.length) return () => {};
+
+  const maxTags = options.maxTags || 35;
+  const filteredTags = filterCloudTags(tags, maxTags);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) return () => {};
@@ -94,8 +110,8 @@ export function initTagCloud(canvas, tags, onTagClick) {
   resize();
   window.addEventListener("resize", resize);
 
-  const baseRadius = Math.min(canvas.width, canvas.height) * 0.36 / (window.devicePixelRatio || 1);
-  let points = createSpherePoints(tags, baseRadius);
+  const baseRadius = Math.min(canvas.width, canvas.height) * 0.38 / (window.devicePixelRatio || 1);
+  let points = createSpherePoints(filteredTags, baseRadius);
 
   // Rotation physics
   let angleX = 0.0018;
@@ -107,14 +123,34 @@ export function initTagCloud(canvas, tags, onTagClick) {
   let hoveredTag = null;
   let animId = null;
 
-  // Track hitboxes for clicks
+  // Track hitboxes and drag state
   let projectedPoints = [];
+  let dragDistance = 0;
+  let downPos = { x: 0, y: 0 };
+  const DRAG_THRESHOLD_PX = 6;
+
+  function getTagAt(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = (clientX - rect.left) * (canvas.width / rect.width);
+    const my = (clientY - rect.top) * (canvas.height / rect.height);
+
+    for (const p of [...projectedPoints].sort((a, b) => b.z - a.z)) {
+      if (p.z < 0) continue; // Only hover front hemisphere
+      const d = Math.hypot(p.x - mx, p.y - my);
+      if (d < p.hitRadius) {
+        return p.name;
+      }
+    }
+    return null;
+  }
 
   function onPointerDown(e) {
     isDragging = true;
+    dragDistance = 0;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     lastPos = { x: clientX, y: clientY };
+    downPos = { x: clientX, y: clientY };
   }
 
   function onPointerMove(e) {
@@ -124,38 +160,43 @@ export function initTagCloud(canvas, tags, onTagClick) {
     if (isDragging) {
       const dx = clientX - lastPos.x;
       const dy = clientY - lastPos.y;
+      dragDistance += Math.hypot(dx, dy);
       targetAngleY = dx * 0.0035;
       targetAngleX = -dy * 0.0035;
       lastPos = { x: clientX, y: clientY };
-    } else {
-      // Hit testing for hover
-      const rect = canvas.getBoundingClientRect();
-      const mx = (clientX - rect.left) * (canvas.width / rect.width);
-      const my = (clientY - rect.top) * (canvas.height / rect.height);
+    }
 
-      let found = null;
-      // Check from front to back
-      for (const p of [...projectedPoints].sort((a, b) => b.z - a.z)) {
-        if (p.z < 0) continue; // Only hover front hemisphere
-        const d = Math.hypot(p.x - mx, p.y - my);
-        if (d < p.hitRadius) {
-          found = p.name;
-          break;
-        }
-      }
-      hoveredTag = found;
-      canvas.style.cursor = found ? "pointer" : "default";
+    if (!isDragging || dragDistance <= DRAG_THRESHOLD_PX) {
+      hoveredTag = getTagAt(clientX, clientY);
+      canvas.style.cursor = hoveredTag ? "pointer" : "default";
+    } else {
+      hoveredTag = null;
+      canvas.style.cursor = "grabbing";
     }
   }
 
   function onPointerUp(e) {
     if (!isDragging) return;
     isDragging = false;
-    // Check if it was a quick click rather than a drag
-    if (e.type === "pointerup" || e.type === "mouseup" || e.type === "touchend") {
-      if (hoveredTag && typeof onTagClick === "function") {
-        onTagClick(hoveredTag);
+    canvas.style.cursor = hoveredTag ? "pointer" : "default";
+
+    // For touch devices: trigger click on stationary tap
+    if (e.type === "touchend" && dragDistance <= DRAG_THRESHOLD_PX) {
+      const tag = getTagAt(downPos.x, downPos.y);
+      if (tag && typeof onTagClick === "function") {
+        onTagClick(tag);
       }
+    }
+  }
+
+  function onClick(e) {
+    // Suppress click navigation if user was dragging/spinning the sphere
+    if (dragDistance > DRAG_THRESHOLD_PX) {
+      return;
+    }
+    const tag = getTagAt(e.clientX, e.clientY) || hoveredTag;
+    if (tag && typeof onTagClick === "function") {
+      onTagClick(tag);
     }
   }
 
@@ -167,17 +208,13 @@ export function initTagCloud(canvas, tags, onTagClick) {
   canvas.addEventListener("touchmove", onPointerMove, { passive: true });
   window.addEventListener("touchend", onPointerUp);
 
-  canvas.addEventListener("click", () => {
-    if (hoveredTag && typeof onTagClick === "function") {
-      onTagClick(hoveredTag);
-    }
-  });
+  canvas.addEventListener("click", onClick);
 
   function render() {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.width;
     const h = canvas.height;
-    const radius = Math.min(w, h) * 0.36;
+    const radius = Math.min(w, h) * 0.38;
 
     // Smooth inertia interpolation
     angleX += (targetAngleX - angleX) * 0.08;
@@ -210,7 +247,7 @@ export function initTagCloud(canvas, tags, onTagClick) {
     // Project and sort by depth (z-index)
     projectedPoints = points.map((p) => {
       const proj = projectPoint(p, w, h, radius);
-      const fontSize = Math.max(12 * dpr, Math.min(26 * dpr, (13 + Math.log2(p.count + 1) * 3.5) * dpr)) * proj.scale;
+      const fontSize = Math.max(11 * dpr, Math.min(22 * dpr, (12 + Math.log2(p.count + 1) * 3) * dpr)) * proj.scale;
       const hitRadius = fontSize * (p.name.length * 0.38);
       return {
         name: p.name,
@@ -260,5 +297,6 @@ export function initTagCloud(canvas, tags, onTagClick) {
     canvas.removeEventListener("touchstart", onPointerDown);
     canvas.removeEventListener("touchmove", onPointerMove);
     window.removeEventListener("touchend", onPointerUp);
+    canvas.removeEventListener("click", onClick);
   };
 }
