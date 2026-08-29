@@ -1,6 +1,6 @@
-"""Unit tests for the image processor Lambda. Run: python3 test_processor.py
+"""Unit tests for the image processor Lambda. Run: python3 tests/test_processor.py
 
-Lives at the repo root, not in lambda/processor/, so it stays out of the deploy zip.
+Lives in tests/, not in lambda/processor/, so it stays out of the deploy zip.
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ os.environ.setdefault("IMAGE_BUCKET", "test-image-bucket")
 os.environ.setdefault("CATALOG_TABLE", "test-catalog-table")
 os.environ.setdefault("LOG_LEVEL", "ERROR")
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lambda", "processor"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "lambda", "processor"))
 
 from PIL import Image, ImageDraw
 import handler

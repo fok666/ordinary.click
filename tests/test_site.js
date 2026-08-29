@@ -1,16 +1,16 @@
 // Unit tests for client-side SPA modules: Flags, Plugins, and pure helpers.
-// Run: node --test test_site.js
+// Run: node --test tests/test_site.js
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
 // Import modules to test
-import { Flags, DEFAULT_FLAGS } from "./site/flags.js";
-import { EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry } from "./site/plugins.js";
-import { createSpherePoints, rotatePoint, projectPoint } from "./site/tagcloud.js";
-import { Favorites } from "./site/favorites.js";
-import { sortPhotos, groupPhotosByDate } from "./site/sorter.js";
-import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "./site/search.js";
+import { Flags, DEFAULT_FLAGS } from "../site/flags.js";
+import { events, EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry } from "../site/plugins.js";
+import { createSpherePoints, rotatePoint, projectPoint } from "../site/tagcloud.js";
+import { Favorites } from "../site/favorites.js";
+import { sortPhotos, groupPhotosByDate } from "../site/sorter.js";
+import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "../site/search.js";
 
 // Helper mocks for browser globals when testing in Node
 function createMockStorage() {
@@ -151,9 +151,7 @@ test("ThemeRegistry: register, query, and baseline themes", () => {
 test("ThemeRegistry: apply emits event", () => {
   const reg = new ThemeRegistry();
   let emitted = null;
-  import("./site/plugins.js").then(({ events }) => {
-    events.on("theme:change", (e) => (emitted = e));
-  });
+  events.on("theme:change", (e) => (emitted = e));
 
   const ok = reg.apply("dark");
   assert.equal(ok, true);
