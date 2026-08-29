@@ -456,3 +456,14 @@ test("Search: highlightMatches wraps matching terms in mark tags", () => {
   );
 });
 
+test("Recent Photo: sortPhotos date-desc correctly identifies the single latest photo", () => {
+  const photos = [
+    { id: "old", createdAt: 1600000000, description: "Old photo" },
+    { id: "newest", createdAt: 1700000000, description: "Newest photo" },
+    { id: "mid", createdAt: 1650000000, description: "Mid photo" },
+  ];
+  const sorted = sortPhotos(photos, "date-desc");
+  const latest = sorted[0];
+  assert.equal(latest.id, "newest");
+});
+
