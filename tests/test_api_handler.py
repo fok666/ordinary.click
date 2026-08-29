@@ -1,6 +1,6 @@
-"""Auth checks for the gallery API router. Run: python3 test_api_handler.py
+"""Auth checks for the gallery API router. Run: python3 tests/test_api_handler.py
 
-Lives at the repo root, not in lambda/api/, so it stays out of the deploy zip.
+Lives in tests/, not in lambda/api/, so it stays out of the deploy zip.
 """
 
 import os
@@ -11,7 +11,8 @@ for _mod in ("boto3", "boto3.dynamodb", "boto3.dynamodb.conditions", "botocore",
     sys.modules.setdefault(_mod, MagicMock())
 
 os.environ.setdefault("IMAGE_BUCKET", "test-bucket")
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lambda", "api"))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO_ROOT, "lambda", "api"))
 
 import handler  # noqa: E402
 

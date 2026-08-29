@@ -19,6 +19,7 @@ Serverless personal photo gallery on AWS. Scale-to-zero: CloudFront → S3 + API
 | `lambda/processor/` | Image processor Lambda — resize, thumbnails, GPS extraction (S3-triggered) |
 | `site/` | Static SPA (HTML/CSS/JS), deployed to S3 via `aws s3 sync` |
 | `scripts/` | Local helper scripts (e.g., STS assume-role) |
+| `tests/` | Unit and integration test suites (API, Processor, Frontend SPA) |
 | `terraform/build/` | Generated build artifacts for Lambda (gitignored) |
 
 ## Build & Deploy
@@ -49,15 +50,15 @@ Run all tests via the unified runner:
 ./test.sh
 ```
 Or run individually:
-- `python3 test_api_handler.py`: API Lambda router authorization & hashtag parsing
-- `python3 test_processor.py`: Processor Lambda image resizing, GPS extraction & DynamoDB updates
-- `node --test test_site.js`: Client-side feature flags, plugin engine & helper parity tests
+- `python3 tests/test_api_handler.py`: API Lambda router authorization & hashtag parsing
+- `python3 tests/test_processor.py`: Processor Lambda image resizing, GPS extraction & DynamoDB updates
+- `node --test tests/test_site.js`: Client-side feature flags, plugin engine & helper parity tests
 
 ## Code Conventions
 
 ### General
 
-Work in small testable steps. Test after each step. Do not move on until the step is tested and working. Use short lived git branches to isolate changes. Prefer small incremental pull requests. The goal is to maintain a codebase with minimal regressions and high velocity.
+Work in small testable steps. Test after each step. Do not move on until the step is tested and working. Use short lived git branches to isolate changes. Commit frequently, push often. Prefer small incremental pull requests. The goal is to maintain a codebase with minimal regressions and high velocity.
 
 ### Python (Lambdas)
 

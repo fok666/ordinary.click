@@ -10,17 +10,18 @@
 const STORAGE_KEY = "oc.flags";
 
 export const DEFAULT_FLAGS = {
-  blurredLightbox: false,
+  blurredLightbox: true,
   randomRoute: true,
   latestRoute: true,
   recentRoute: true,
-  dragDropUpload: false,
+  dragDropUpload: true,
   photoSorting: true,
-  instantSearch: false,
-  favorites: false,
-  tagCloud: false,
-  customThemes: false,
-  customLayouts: false,
+  instantSearch: true,
+  favorites: true,
+  tagCloud: true,
+  customThemes: true,
+  customLayouts: true,
+  contextHelp: true,
 };
 
 function getStorage() {
