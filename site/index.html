@@ -29,7 +29,8 @@
         <p class="tagline">A personal collection of ordinary, everyday moments.</p>
       </div>
       <div class="site-actions">
-        <button id="theme-toggle" class="icon-btn" title="Toggle light/dark" aria-label="Toggle theme"></button>
+        <button id="help-toggle" class="icon-btn" title="Keyboard shortcuts & help (?)" aria-label="Help and shortcuts">?</button>
+        <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme"></button>
         <nav id="auth-nav" class="auth-nav"></nav>
       </div>
     </div>
@@ -40,6 +41,10 @@
       <a href="#/" data-route="/">Home</a>
       <a href="#/tags" data-route="/tags">Tags</a>
       <a href="#/collections" data-route="/collections">Collections</a>
+      <a href="#/recent" data-route="/recent">Recent</a>
+      <a href="#/random" data-route="/random">Random</a>
+      <a href="#/favorites" data-route="/favorites">Favorites</a>
+      <a href="#/search" data-route="/search">Search</a>
       <a href="#/map" data-route="/map">Map</a>
     </nav>
     <main id="app">
@@ -47,8 +52,10 @@
     </main>
   </div>
 
-  <div id="lightbox" class="lightbox" hidden>
+  <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Photo viewer">
+    <div class="lightbox-backdrop" aria-hidden="true"></div>
     <button class="lightbox-close" aria-label="Close">×</button>
+    <button class="lightbox-fav" title="Favorite (F)" aria-label="Toggle favorite">♡</button>
     <button class="lightbox-prev" aria-label="Previous">‹</button>
     <img alt="" />
     <button class="lightbox-next" aria-label="Next">›</button>
@@ -110,6 +117,55 @@
           <button type="submit" class="primary">Save</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Drag & Drop Upload Overlay -->
+  <div id="drag-drop-overlay" class="drag-drop-overlay" hidden>
+    <div class="drag-drop-box">
+      <span class="drag-icon">📤</span>
+      <h3>Drop photos to upload</h3>
+      <p>JPEG, PNG, WebP, AVIF</p>
+    </div>
+  </div>
+
+  <!-- Help & Shortcuts Modal -->
+  <div id="help-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+    <div class="modal-card">
+      <h3 id="help-modal-title">Shortcuts & Gallery Tips</h3>
+      <table class="shortcut-table">
+        <tbody>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Navigate photos in lightbox</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Close lightbox or modal</td></tr>
+          <tr><td><kbd>F</kbd></td><td>Favorite / bookmark photo</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Jump to Instant Search</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Toggle this shortcut guide</td></tr>
+        </tbody>
+      </table>
+      <h4 style="margin: 1rem 0 .4rem;">Hashtags & Tag Drilldown</h4>
+      <p style="font-size: .88rem; color: var(--muted); margin: 0 0 1rem;">
+        Photos with <code>#hashtags</code> in their description automatically link to tag collections. Click multiple tag filter chips on any gallery view to narrow down photos matching all selected tags simultaneously.
+      </p>
+      <div class="field">
+        <label style="display: flex; align-items: center; gap: .55rem; cursor: pointer; font-size: .88rem; color: var(--fg);">
+          <input type="checkbox" id="help-show-tips" style="width: auto; margin: 0;" />
+          <span>Show contextual micro-tips <code>(!)</code> on gallery pages</span>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="help-close" class="primary">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Theme Picker Modal -->
+  <div id="theme-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="theme-modal-title">
+    <div class="modal-card">
+      <h3 id="theme-modal-title">Select Theme</h3>
+      <div class="theme-grid" id="theme-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin: 1rem 0;"></div>
+      <div class="modal-actions">
+        <button type="button" id="theme-modal-close">Done</button>
+      </div>
     </div>
   </div>
 
