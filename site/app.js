@@ -830,7 +830,12 @@ const TAG_BAR_HTML = `<div id="tag-bar" class="tag-bar" hidden></div>`;
 async function mountPhotoGrid(photos, admin, onChanged) {
   document.querySelectorAll(".photo-item img").forEach((node) => {
     node.addEventListener("click", () => {
-      const idx = parseInt(node.closest(".photo-item").dataset.index, 10);
+      const itemEl = node.closest(".photo-item");
+      const id = itemEl?.dataset.id;
+      let idx = id ? photos.findIndex((p) => p.id === id) : -1;
+      if (idx === -1) {
+        idx = parseInt(itemEl?.dataset.index || "0", 10);
+      }
       openLightbox(photos, idx);
     });
   });
@@ -838,8 +843,9 @@ async function mountPhotoGrid(photos, admin, onChanged) {
   document.querySelectorAll(".photo-fav").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
+      const id = btn.dataset.id;
       const idx = parseInt(btn.dataset.index, 10);
-      const photo = photos[idx] || photos.find((p) => p.id === btn.dataset.id);
+      const photo = (id ? photos.find((p) => p.id === id) : null) || photos[idx];
       if (photo) {
         const nextState = Favorites.toggle(photo);
         btn.textContent = nextState ? "♥" : "♡";
@@ -1361,9 +1367,10 @@ async function renderTag(name) {
   try {
     const bust = admin ? `?t=${Date.now()}` : "";
     const data = await fetchJSON(`/api/tags/${encodeURIComponent(name)}${bust}`);
-    const photos = data.images;
+    const photos = data.images || [];
+    const sorted = sortPhotos(photos, currentSort);
     const collections = admin ? (await getCatalog()).collections : [];
-    const tiles = photos.map((p, i) => photoTile(p, i, admin)).join("");
+    const tiles = sorted.map((p, i) => photoTile(p, i, admin)).join("");
 
     render(`
       <div class="page-head">
@@ -1449,8 +1456,9 @@ async function renderCollection(id) {
   try {
     const bust = admin ? `?t=${Date.now()}` : "";
     const data = await fetchJSON(`/api/collections/${encodeURIComponent(id)}${bust}`);
-    const photos = data.images;
-    const tiles = photos.map((p, i) => photoTile(p, i, admin)).join("");
+    const photos = data.images || [];
+    const sorted = sortPhotos(photos, currentSort);
+    const tiles = sorted.map((p, i) => photoTile(p, i, admin)).join("");
     render(`
       <div class="page-head">
         <div class="breadcrumb"><a href="#/collections">Collections</a> / ${esc(data.title)}</div>
