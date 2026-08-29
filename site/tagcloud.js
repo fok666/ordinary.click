@@ -62,12 +62,14 @@ export function rotatePoint(p, ax, ay) {
  */
 export function projectPoint(p, width, height, radius, fov = 450) {
   const scale = fov / Math.max(1, fov - p.z);
+  const normZ = Math.max(0, Math.min(1, (p.z + radius) / (2 * radius)));
+  // Enhanced depth contrast: receding elements fade to ~0.15, front elements reach full 1.0
+  const alpha = Math.max(0.15, Math.min(1.0, Math.pow(normZ, 1.35) * 0.85 + 0.15));
   return {
     x: width / 2 + p.x * scale,
     y: height / 2 + p.y * scale,
     scale,
-    // Deeper points are slightly more transparent
-    alpha: Math.max(0.18, Math.min(1.0, 0.4 + 0.6 * ((p.z + radius) / (2 * radius)))),
+    alpha,
   };
 }
 
@@ -265,23 +267,52 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
     // Draw tags
     for (const p of projectedPoints) {
       const isHovered = hoveredTag === p.name;
-      ctx.font = `${isHovered ? "700" : "500"} ${p.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
+      // Dynamic focal weight: background (400), midground (500), foreground (600), hovered (700)
+      const fontWeight = isHovered ? "700" : (p.z > radius * 0.2 ? "600" : (p.z > -radius * 0.2 ? "500" : "400"));
+      ctx.font = `${fontWeight} ${p.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
+      // Depth of Field (DoF): subtle optical blur on receding background elements, crisp on foreground
+      if (!isHovered && p.z < -radius * 0.15) {
+        const blurPx = Math.min(2.0, ((-p.z - radius * 0.15) / (radius * 0.85)) * 1.5 * dpr);
+        ctx.filter = `blur(${blurPx.toFixed(1)}px)`;
+      } else {
+        ctx.filter = "none";
+      }
+
       if (isHovered) {
         ctx.fillStyle = `rgb(${accentColor})`;
-        // Subtle glow backdrop
-        ctx.shadowColor = `rgba(${accentColor}, 0.5)`;
+        // Subtle glow backdrop on hover
+        ctx.shadowColor = `rgba(${accentColor}, 0.6)`;
         ctx.shadowBlur = 8 * dpr;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
       } else {
         ctx.fillStyle = `rgba(${baseColor}, ${p.alpha})`;
-        ctx.shadowBlur = 0;
+
+        // Small drop shadow on frontmost elements for pop and contrast
+        if (p.z > radius * 0.25) {
+          const shadowFactor = (p.z - radius * 0.25) / (radius * 0.75);
+          const shadowAlpha = isDark ? (0.35 * shadowFactor) : (0.22 * shadowFactor);
+          ctx.shadowColor = `rgba(0, 0, 0, ${shadowAlpha.toFixed(2)})`;
+          ctx.shadowBlur = 3.5 * dpr;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 1.5 * dpr;
+        } else {
+          ctx.shadowColor = "transparent";
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetX = 0;
+          ctx.shadowOffsetY = 0;
+        }
       }
 
       ctx.fillText(`#${p.name}`, p.x, p.y);
-      ctx.shadowBlur = 0;
     }
+
+    // Reset filter & shadow after loop
+    ctx.filter = "none";
+    ctx.shadowBlur = 0;
 
     animId = requestAnimationFrame(render);
   }
