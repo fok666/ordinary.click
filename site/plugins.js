@@ -93,6 +93,30 @@ export class ThemeRegistry {
       description: "Default warm dark theme",
       previewColor: "#171614",
     });
+    this.register("monochrome", {
+      id: "monochrome",
+      name: "Monochrome",
+      description: "Stark black and white gallery aesthetic",
+      previewColor: "#0d0d0d",
+    });
+    this.register("sepia", {
+      id: "sepia",
+      name: "Sepia Archive",
+      description: "Warm vintage film and archival amber tones",
+      previewColor: "#f5eedf",
+    });
+    this.register("nordic", {
+      id: "nordic",
+      name: "Nordic Slate",
+      description: "Cool slate grays and muted iceberg blues",
+      previewColor: "#1c2229",
+    });
+    this.register("oled", {
+      id: "oled",
+      name: "OLED Black",
+      description: "Pure #000000 high-contrast black for OLED displays",
+      previewColor: "#000000",
+    });
   }
 
   register(id, theme) {
@@ -152,6 +176,27 @@ export class LayoutRegistry {
       icon: "▦",
       description: "Uniform square grid tiles",
       containerClass: "photo-grid",
+    });
+    this.register("masonry", {
+      id: "masonry",
+      name: "Masonry",
+      icon: "▤",
+      description: "Dynamic multi-column layout preserving natural aspect ratios",
+      containerClass: "photo-grid-masonry",
+    });
+    this.register("justified", {
+      id: "justified",
+      name: "Justified",
+      icon: "▬",
+      description: "Proportional row strip layout",
+      containerClass: "photo-grid-justified",
+    });
+    this.register("compact", {
+      id: "compact",
+      name: "Compact List",
+      icon: "☰",
+      description: "Detailed list view with metadata",
+      containerClass: "photo-grid-compact",
     });
   }
 
