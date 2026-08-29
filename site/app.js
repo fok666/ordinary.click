@@ -22,6 +22,10 @@
 
 import { Flags } from "./flags.js";
 import { events, themes, layouts, widgets, options } from "./plugins.js";
+import { initTagCloud } from "./tagcloud.js";
+import { Favorites } from "./favorites.js";
+import { sortPhotos, groupPhotosByDate } from "./sorter.js";
+import { tokenizeQuery, searchPhotos, highlightMatches } from "./search.js";
 
 const app = document.getElementById("app");
 const authNav = document.getElementById("auth-nav");
@@ -44,25 +48,71 @@ const descHtml = (s) =>
   esc(s).replace(TAG_RE, (m, t) => `<a class="tag-link" href="#/t/${encodeURIComponent(t)}">${m}</a>`);
 
 // ---------------------------------------------------------------------------
-// Theme toggle (light default, dark toggle, system fallback)
+// Theme toggle & multi-theme presets
 // ---------------------------------------------------------------------------
 const THEME_KEY = "oc.theme";
+const THEME_ICONS = {
+  light: "🌙",
+  dark: "☀️",
+  monochrome: "◐",
+  sepia: "📜",
+  nordic: "❄️",
+  oled: "⬛",
+};
+
 function currentTheme() {
   const set = document.documentElement.dataset.theme;
-  if (set === "light" || set === "dark") return set;
+  if (set && themes.has(set)) return set;
   return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
+
 function applyThemeButton() {
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
-  const dark = currentTheme() === "dark";
-  btn.textContent = dark ? "☀️" : "🌙";
-  btn.title = dark ? "Switch to light" : "Switch to dark";
+  const curr = currentTheme();
+  const themeObj = themes.get(curr);
+  btn.textContent = THEME_ICONS[curr] || "🎨";
+  btn.title = `Theme: ${themeObj?.name || curr} (Click to change)`;
 }
+
+function populateThemeModal() {
+  const grid = document.getElementById("theme-grid");
+  if (!grid) return;
+  const curr = currentTheme();
+  grid.innerHTML = themes.getAll().map((t) => `
+    <button type="button" class="theme-card-btn ${t.id === curr ? "active" : ""}" data-theme-id="${esc(t.id)}" style="display: flex; align-items: center; gap: .7rem; padding: .65rem .85rem; border: 2px solid ${t.id === curr ? "var(--accent)" : "var(--border)"}; border-radius: var(--radius-sm); background: var(--surface); color: var(--fg); cursor: pointer; text-align: left; transition: all .15s ease;">
+      <span style="width: 22px; height: 22px; border-radius: 999px; background: ${esc(t.previewColor)}; border: 1px solid rgba(128,128,128,.4); display: inline-block; flex-shrink: 0;"></span>
+      <div>
+        <div style="font-weight: 600; font-size: .9rem;">${esc(t.name)}</div>
+        <div style="font-size: .75rem; color: var(--muted);">${esc(t.description || "")}</div>
+      </div>
+    </button>
+  `).join("");
+
+  grid.querySelectorAll(".theme-card-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      themes.apply(btn.dataset.themeId);
+      applyThemeButton();
+      populateThemeModal();
+    });
+  });
+}
+
+function openThemeModal() {
+  const modal = document.getElementById("theme-modal");
+  if (!modal) return;
+  populateThemeModal();
+  modal.hidden = false;
+}
+
 function toggleTheme() {
-  const next = currentTheme() === "dark" ? "light" : "dark";
-  themes.apply(next);
-  applyThemeButton();
+  if (Flags.isEnabled("customThemes")) {
+    openThemeModal();
+  } else {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    themes.apply(next);
+    applyThemeButton();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -253,8 +303,28 @@ function renderAuthNav() {
 const lightbox = document.getElementById("lightbox");
 const lightboxImg = lightbox.querySelector("img");
 const lightboxMeta = document.getElementById("lightbox-meta");
+const lightboxBackdrop = lightbox.querySelector(".lightbox-backdrop");
+const lightboxFavBtn = lightbox.querySelector(".lightbox-fav");
 let lightboxItems = [];
 let lightboxIndex = 0;
+
+function toggleLightboxFavorite() {
+  if (!lightboxItems.length) return;
+  const item = lightboxItems[lightboxIndex];
+  const isNowFav = Favorites.toggle(item);
+  if (lightboxFavBtn) {
+    lightboxFavBtn.textContent = isNowFav ? "♥" : "♡";
+    lightboxFavBtn.classList.toggle("active", isNowFav);
+    lightboxFavBtn.title = isNowFav ? "Remove from favorites (F)" : "Add to favorites (F)";
+  }
+  // Sync with tile in visible grid if present
+  const tileFav = document.querySelector(`.photo-fav[data-id="${item.id}"]`);
+  if (tileFav) {
+    tileFav.textContent = isNowFav ? "♥" : "♡";
+    tileFav.classList.toggle("active", isNowFav);
+    tileFav.title = isNowFav ? "Remove from favorites" : "Add to favorites";
+  }
+}
 
 function openLightbox(items, index) {
   lightboxItems = items;
@@ -263,18 +333,45 @@ function openLightbox(items, index) {
   lightbox.hidden = false;
   document.body.style.overflow = "hidden";
 }
+
 function closeLightbox() {
   lightbox.hidden = true;
   lightboxImg.src = "";
   lightboxMeta.innerHTML = "";
+  if (lightboxBackdrop) {
+    lightboxBackdrop.classList.remove("active");
+    lightboxBackdrop.style.backgroundImage = "";
+  }
   document.body.style.overflow = "";
 }
+
 function showLightbox() {
   if (!lightboxItems.length) return;
   lightboxIndex = (lightboxIndex + lightboxItems.length) % lightboxItems.length;
   const item = lightboxItems[lightboxIndex];
   lightboxImg.src = item.url;
   lightboxImg.alt = item.filename || "";
+
+  // Blurred Backdrop
+  if (Flags.isEnabled("blurredLightbox") && lightboxBackdrop) {
+    lightboxBackdrop.style.backgroundImage = `url("${item.url}")`;
+    lightboxBackdrop.classList.add("active");
+  } else if (lightboxBackdrop) {
+    lightboxBackdrop.classList.remove("active");
+    lightboxBackdrop.style.backgroundImage = "";
+  }
+
+  // Favorite status
+  if (Flags.isEnabled("favorites") && lightboxFavBtn) {
+    const isFav = Favorites.has(item.id);
+    lightboxFavBtn.textContent = isFav ? "♥" : "♡";
+    lightboxFavBtn.classList.toggle("active", isFav);
+    lightboxFavBtn.title = isFav ? "Remove from favorites (F)" : "Add to favorites (F)";
+    lightboxFavBtn.hidden = false;
+  } else if (lightboxFavBtn) {
+    lightboxFavBtn.hidden = true;
+  }
+
   // Warm the neighbors so arrows/swipes feel instant.
   [lightboxIndex + 1, lightboxIndex - 1].forEach((i) => {
     const n = lightboxItems[(i + lightboxItems.length) % lightboxItems.length];
@@ -297,16 +394,26 @@ function showLightbox() {
   }
   lightboxMeta.innerHTML = html;
 }
+
 lightbox.querySelector(".lightbox-close").addEventListener("click", closeLightbox);
 lightbox.querySelector(".lightbox-prev").addEventListener("click", (e) => { e.stopPropagation(); lightboxIndex--; showLightbox(); });
 lightbox.querySelector(".lightbox-next").addEventListener("click", (e) => { e.stopPropagation(); lightboxIndex++; showLightbox(); });
+if (lightboxFavBtn) {
+  lightboxFavBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleLightboxFavorite();
+  });
+}
 lightbox.addEventListener("click", (e) => { if (e.target === lightbox || e.target === lightboxImg) closeLightbox(); });
+
 document.addEventListener("keydown", (e) => {
   if (lightbox.hidden) return;
   if (e.key === "Escape") closeLightbox();
   else if (e.key === "ArrowLeft") { lightboxIndex--; showLightbox(); }
   else if (e.key === "ArrowRight") { lightboxIndex++; showLightbox(); }
+  else if (e.key === "f" || e.key === "F") { toggleLightboxFavorite(); }
 });
+
 // Swipe left/right on touch screens; a plain tap (dx below threshold) still
 // falls through to the click handler and closes.
 let _swipeX = null;
@@ -659,12 +766,18 @@ function photoTile(photo, i, admin) {
   const caption = photo.description
     ? descHtml(photo.description)
     : (photo.latitude != null ? `📍 ${Number(photo.latitude).toFixed(2)}, ${Number(photo.longitude).toFixed(2)}` : "");
+  const isFav = Flags.isEnabled("favorites") && Favorites.has(photo.id);
+  const favBtnHtml = Flags.isEnabled("favorites")
+    ? `<button type="button" class="photo-fav ${isFav ? "active" : ""}" data-id="${esc(photo.id)}" data-index="${i}" title="${isFav ? "Remove from favorites (F)" : "Add to favorites (F)"}" aria-label="Toggle favorite">${isFav ? "♥" : "♡"}</button>`
+    : "";
+
   return `
     <div class="photo-item" data-index="${i}" data-id="${esc(photo.id)}">
       <div class="photo-frame">
         <img loading="lazy" decoding="async" src="${esc(photo.thumb || photo.url)}" alt="${esc(photo.filename)}"
              data-url="${esc(photo.url)}"
              onerror="if(this.dataset.fb!=='1'){this.dataset.fb='1';this.src=this.dataset.url;}" />
+        ${favBtnHtml}
         ${admin ? `<button class="photo-select" data-index="${i}" title="Select (shift-click for a range)" aria-pressed="false">✓</button>
         <div class="photo-actions">
           <button class="edit-photo" data-index="${i}" title="Edit">✏️</button>
@@ -688,6 +801,21 @@ async function mountPhotoGrid(photos, admin, onChanged) {
       openLightbox(photos, idx);
     });
   });
+
+  document.querySelectorAll(".photo-fav").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index, 10);
+      const photo = photos[idx] || photos.find((p) => p.id === btn.dataset.id);
+      if (photo) {
+        const nextState = Favorites.toggle(photo);
+        btn.textContent = nextState ? "♥" : "♡";
+        btn.classList.toggle("active", nextState);
+        btn.title = nextState ? "Remove from favorites (F)" : "Add to favorites (F)";
+      }
+    });
+  });
+
   if (!admin) return;
 
   document.querySelectorAll(".edit-photo").forEach((btn) => {
@@ -843,6 +971,68 @@ async function mountPhotoGrid(photos, admin, onChanged) {
 }
 
 // ---------------------------------------------------------------------------
+// Gallery Controls (Sorting & Layouts)
+// ---------------------------------------------------------------------------
+let currentSort = "date-desc";
+try {
+  const s = localStorage.getItem("oc.sort");
+  if (s) currentSort = s;
+} catch {}
+
+let currentLayout = layouts.current() || "grid";
+
+function galleryControlsHtml(sortStrategy = currentSort, layoutStrategy = currentLayout) {
+  const showSort = Flags.isEnabled("photoSorting");
+  const showLayout = Flags.isEnabled("customLayouts");
+  if (!showSort && !showLayout) return "";
+
+  const sortPart = showSort ? `
+    <div class="control-group">
+      <label for="gallery-sort">Sort:</label>
+      <select id="gallery-sort" class="gallery-sort">
+        <option value="date-desc" ${sortStrategy === "date-desc" ? "selected" : ""}>Newest first</option>
+        <option value="date-asc" ${sortStrategy === "date-asc" ? "selected" : ""}>Oldest first</option>
+        <option value="name-asc" ${sortStrategy === "name-asc" ? "selected" : ""}>Title (A–Z)</option>
+        <option value="name-desc" ${sortStrategy === "name-desc" ? "selected" : ""}>Title (Z–A)</option>
+        <option value="tags-desc" ${sortStrategy === "tags-desc" ? "selected" : ""}>Most tags</option>
+      </select>
+    </div>` : "";
+
+  const layoutPart = showLayout ? `
+    <div class="control-group layout-control">
+      <label>Layout:</label>
+      <button type="button" class="layout-btn ${layoutStrategy === "grid" ? "active" : ""}" data-layout="grid" title="Square Grid">▦</button>
+      <button type="button" class="layout-btn ${layoutStrategy === "masonry" ? "active" : ""}" data-layout="masonry" title="Masonry">▤</button>
+      <button type="button" class="layout-btn ${layoutStrategy === "justified" ? "active" : ""}" data-layout="justified" title="Justified">▬</button>
+      <button type="button" class="layout-btn ${layoutStrategy === "compact" ? "active" : ""}" data-layout="compact" title="Compact List">☰</button>
+    </div>` : "";
+
+  return `<div class="gallery-controls">${sortPart}${layoutPart}</div>`;
+}
+
+function wireGalleryControls(container, onSortChange, onLayoutChange) {
+  if (!container) return;
+  const sortSelect = container.querySelector("#gallery-sort");
+  if (sortSelect) {
+    sortSelect.addEventListener("change", () => {
+      const val = sortSelect.value;
+      try { localStorage.setItem("oc.sort", val); } catch {}
+      currentSort = val;
+      if (typeof onSortChange === "function") onSortChange(val);
+    });
+  }
+  container.querySelectorAll(".layout-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const lay = btn.dataset.layout;
+      layouts.set(lay);
+      currentLayout = lay;
+      container.querySelectorAll(".layout-btn").forEach((b) => b.classList.toggle("active", b.dataset.layout === lay));
+      if (typeof onLayoutChange === "function") onLayoutChange(lay);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Tag drill-down — additive AND filter over an already-loaded photo list.
 // Chips show the tags present in the current (filtered) set, so every click
 // narrows to a non-empty result; clicking a selected chip widens again.
@@ -858,6 +1048,8 @@ async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
   async function apply(rebuild) {
     // `selected` and data-tag hold fold keys; chips display the first-seen spelling.
     const filtered = photos.filter((p) => [...selected].every((k) => photoTags(p).some((x) => foldTag(x) === k)));
+    const sorted = sortPhotos(filtered, currentSort);
+
     if (box) {
       const counts = new Map(); // fold key -> { name, n }
       filtered.forEach((p) => photoTags(p).forEach((t) => {
@@ -880,12 +1072,12 @@ async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
       if (grid) {
         // Fresh node, so mountPhotoGrid's listeners don't stack up on re-filter.
         const next = document.createElement("div");
-        next.className = "photo-grid";
-        next.innerHTML = filtered.map((p, i) => photoTile(p, i, admin)).join("");
+        next.className = `photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}`;
+        next.innerHTML = sorted.map((p, i) => photoTile(p, i, admin)).join("");
         grid.replaceWith(next);
       }
     }
-    await mountPhotoGrid(filtered, admin, onChanged);
+    await mountPhotoGrid(sorted, admin, onChanged);
   }
 
   box?.addEventListener("click", (e) => {
@@ -895,6 +1087,20 @@ async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
     else selected.add(chip.dataset.tag);
     apply(true);
   });
+
+  const controls = document.querySelector(".gallery-controls");
+  if (controls) {
+    wireGalleryControls(
+      controls,
+      (newSort) => { currentSort = newSort; apply(true); },
+      (newLayout) => {
+        currentLayout = newLayout;
+        const grid = document.querySelector(".photo-grid");
+        if (grid) grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+      }
+    );
+  }
+
   await apply(false);
 }
 
@@ -1000,6 +1206,15 @@ async function renderCover() {
         </div>
       </a>` : "";
 
+    const tagCloudHtml = Flags.isEnabled("tagCloud") && cat.tags.length ? `
+      <div class="tagcloud-wrapper">
+        <div class="tagcloud-header">
+          <h3>Interactive 3D Tag Cloud</h3>
+          <div class="tagcloud-hint">Drag with mouse or touch to rotate • Click tag to explore</div>
+        </div>
+        <canvas id="tagcloud-canvas" class="tagcloud-canvas"></canvas>
+      </div>` : "";
+
     const featured = cat.collections.slice(0, 4).map(collectionCard).join("");
 
     render(`
@@ -1010,13 +1225,18 @@ async function renderCover() {
           : `Nothing here yet. Sign in to upload your first photos.`}</p>
       </section>
       ${heroHtml}
-      <!--div class="quick-links">
-        <a class="quick-link" href="#/tags"><span class="ql-icon">🏷️</span><strong>Tags</strong><span>Browse by overlapping themes</span></a>
-        <a class="quick-link" href="#/collections"><span class="ql-icon">◆</span><strong>Collections</strong><span>Curated sets that belong together</span></a>
-        <a class="quick-link" href="#/map"><span class="ql-icon">🗺️</span><strong>Map</strong><span>Explore geo-tagged photos</span></a>
-      </div-->
+      ${tagCloudHtml}
       ${featured ? `<!--div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div-->` : ""}
     `);
+
+    if (Flags.isEnabled("tagCloud")) {
+      const canvas = document.getElementById("tagcloud-canvas");
+      if (canvas) {
+        initTagCloud(canvas, cat.tags, (tag) => {
+          location.hash = `#/t/${encodeURIComponent(tag)}`;
+        });
+      }
+    }
   } catch (err) {
     render(`<section class="empty"><p>Couldn't load: ${esc(err.message)}</p></section>`);
   }
@@ -1119,9 +1339,10 @@ async function renderTag(name) {
         <p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>
         ${DRILLDOWN_HTML}
       </div>
+      ${galleryControlsHtml(currentSort, currentLayout)}
       ${admin ? uploadPanelHtml([name], "", collections) : ""}
       ${admin && photos.length ? TAG_BAR_HTML : ""}
-      ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos with this tag yet.</p></section>`}
+      ${photos.length ? `<div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">${tiles}</div>` : `<section class="empty"><p>No photos with this tag yet.</p></section>`}
     `);
 
     await mountDrilldown(photos, admin, () => renderTag(name), name);
@@ -1204,9 +1425,10 @@ async function renderCollection(id) {
         ${data.description ? `<p>${descHtml(data.description)}</p>` : `<p>${photos.length} photo${photos.length === 1 ? "" : "s"}</p>`}
         ${DRILLDOWN_HTML}
       </div>
+      ${galleryControlsHtml(currentSort, currentLayout)}
       ${admin ? uploadPanelHtml([], id, [{ id: data.id, title: data.title }]) : ""}
       ${admin && photos.length ? TAG_BAR_HTML : ""}
-      ${photos.length ? `<div class="photo-grid">${tiles}</div>` : `<section class="empty"><p>No photos in this collection yet.</p></section>`}
+      ${photos.length ? `<div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">${tiles}</div>` : `<section class="empty"><p>No photos in this collection yet.</p></section>`}
     `);
     await mountDrilldown(photos, admin, () => renderCollection(id));
     if (admin) await wireUploadPanel([], () => renderCollection(id));
@@ -1339,6 +1561,9 @@ async function renderMap() {
   markActiveNav("/map");
   render(`<div class="page-head"><h2>Map</h2><p>Geo-tagged photos</p></div><div id="geo-map"></div>`);
   try {
+    if (typeof L === "undefined") {
+      throw new Error("Map library (Leaflet) is offline or unavailable. Check internet connection.");
+    }
     const { images } = await fetchJSON("/api/geo");
     const collTitles = await collectionTitles();
     if (!images.length) {
@@ -1369,14 +1594,472 @@ async function renderMap() {
 }
 
 // ---------------------------------------------------------------------------
+// Random Route (#/random)
+// ---------------------------------------------------------------------------
+async function renderRandom() {
+  markActiveNav("/random");
+  render(`<div class="page-head"><h2>Random Discovery</h2><p>Picking a surprise photo…</p></div><section class="loading"><p>Loading…</p></section>`);
+  try {
+    const cat = await getCatalog();
+    const tagList = (cat.tags || []).filter((t) => t.count > 0);
+    if (!tagList.length) {
+      render(`<div class="page-head"><h2>Random Discovery</h2></div><section class="empty"><p>No photos available in the gallery yet.</p></section>`);
+      return;
+    }
+    const chosenTag = tagList[Math.floor(Math.random() * tagList.length)];
+    const data = await fetchJSON(`/api/tags/${encodeURIComponent(chosenTag.name)}`);
+    const photos = data.images || [];
+    if (!photos.length) {
+      render(`<div class="page-head"><h2>Random Discovery</h2></div><section class="empty"><p>No photos found.</p></section>`);
+      return;
+    }
+    const randomIdx = Math.floor(Math.random() * photos.length);
+    const photo = photos[randomIdx];
+
+    render(`
+      <div class="page-head">
+        <h2>🎲 Random Discovery</h2>
+        <p>A surprise moment from <a class="tag-link" href="#/t/${encodeURIComponent(chosenTag.name)}">#${esc(chosenTag.name)}</a></p>
+        <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap;">
+          <button type="button" id="another-random" class="primary">🎲 Show another random photo</button>
+          <a href="#/t/${encodeURIComponent(chosenTag.name)}" class="ghost button">Explore #${esc(chosenTag.name)} →</a>
+        </div>
+      </div>
+      <div class="photo-grid" style="max-width: 640px; margin: 1.5rem auto;">
+        ${photoTile(photo, 0, isLoggedIn())}
+      </div>
+    `);
+
+    document.getElementById("another-random")?.addEventListener("click", () => renderRandom());
+    await mountPhotoGrid([photo], isLoggedIn(), renderRandom);
+  } catch (err) {
+    render(`<section class="empty"><p>Couldn't load random photo: ${esc(err.message)}</p></section>`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Latest Route (#/latest)
+// ---------------------------------------------------------------------------
+async function renderLatest() {
+  markActiveNav("/recent");
+  render(`<div class="page-head"><h2>Latest Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
+  try {
+    const cat = await getCatalog();
+    const allPhotos = [];
+    for (const t of (cat.tags || []).slice(0, 6)) {
+      try {
+        const data = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
+        allPhotos.push(...(data.images || []));
+      } catch {}
+    }
+    const unique = Array.from(new Map(allPhotos.map((p) => [p.id, p])).values());
+    const sorted = sortPhotos(unique, "date-desc");
+    if (!sorted.length) {
+      render(`<div class="page-head"><h2>Latest Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
+      return;
+    }
+    const latest = sorted[0];
+    render(`
+      <div class="page-head">
+        <div class="breadcrumb"><a href="#/recent">Recent</a> / Latest</div>
+        <h2>✨ Newest Moment</h2>
+        <p>${latest.description ? descHtml(latest.description) : (latest.filename || "Uploaded recently")}</p>
+        <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center;">
+          <a href="#/recent" class="ghost button">View Recent Timeline →</a>
+        </div>
+      </div>
+      <div class="photo-grid" style="max-width: 680px; margin: 1.5rem auto;">
+        ${photoTile(latest, 0, isLoggedIn())}
+      </div>
+    `);
+    await mountPhotoGrid([latest], isLoggedIn(), renderLatest);
+  } catch (err) {
+    render(`<section class="empty"><p>Couldn't load latest photo: ${esc(err.message)}</p></section>`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recent Timeline (#/recent)
+// ---------------------------------------------------------------------------
+async function renderRecent() {
+  markActiveNav("/recent");
+  render(`<div class="page-head"><h2>Timeline</h2><p>Loading chronological moments…</p></div><section class="loading"><p>Loading…</p></section>`);
+  try {
+    const cat = await getCatalog();
+    const allPhotos = [];
+    for (const t of (cat.tags || [])) {
+      try {
+        const data = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
+        allPhotos.push(...(data.images || []));
+      } catch {}
+    }
+    const unique = Array.from(new Map(allPhotos.map((p) => [p.id, p])).values());
+    const admin = isLoggedIn();
+
+    if (!unique.length) {
+      render(`<div class="page-head"><h2>Timeline</h2></div><section class="empty"><p>No photos found yet.</p></section>`);
+      return;
+    }
+
+    const groups = groupPhotosByDate(unique);
+    let flatIdx = 0;
+    const flattened = [];
+
+    const timelineHtml = groups.map((g) => {
+      const tiles = g.photos.map((p) => {
+        flattened.push(p);
+        return photoTile(p, flatIdx++, admin);
+      }).join("");
+
+      return `
+        <div class="timeline-group" style="margin-bottom: 2rem;">
+          <div class="section-title" style="margin-bottom: .8rem; border-bottom: 1px solid var(--border); padding-bottom: .3rem;">
+            <h3>${esc(g.label)}</h3>
+            <span style="font-size: .85rem; color: var(--muted);">${g.photos.length} photo${g.photos.length === 1 ? "" : "s"}</span>
+          </div>
+          <div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">${tiles}</div>
+        </div>`;
+    }).join("");
+
+    render(`
+      <div class="page-head">
+        <h2>Timeline & Recent Uploads</h2>
+        <p>Chronological stream of ${unique.length} moments across all tags.</p>
+      </div>
+      ${galleryControlsHtml(currentSort, currentLayout)}
+      <div id="recent-timeline">${timelineHtml}</div>
+    `);
+
+    const controls = document.querySelector(".gallery-controls");
+    if (controls) {
+      wireGalleryControls(
+        controls,
+        (newSort) => { currentSort = newSort; renderRecent(); },
+        (newLayout) => {
+          currentLayout = newLayout;
+          document.querySelectorAll(".photo-grid").forEach((g) => {
+            g.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+          });
+        }
+      );
+    }
+
+    await mountPhotoGrid(flattened, admin, renderRecent);
+  } catch (err) {
+    render(`<section class="empty"><p>Couldn't load timeline: ${esc(err.message)}</p></section>`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// User Favorites (#/favorites)
+// ---------------------------------------------------------------------------
+async function renderFavorites() {
+  markActiveNav("/favorites");
+  const favs = Favorites.getAll();
+  const sorted = sortPhotos(favs, currentSort);
+  const count = sorted.length;
+  const admin = isLoggedIn();
+
+  render(`
+    <div class="page-head">
+      <h2>♥ Favorites</h2>
+      <p>${count ? `${count} photo${count === 1 ? "" : "s"} saved in this browser.` : "Bookmark photos with the heart button to view them here."}</p>
+    </div>
+    <div class="favorites-bar">
+      ${galleryControlsHtml(currentSort, currentLayout)}
+      <div class="favorites-actions">
+        <button type="button" id="fav-export" class="ghost button" title="Export favorites as JSON">⬇ Export JSON</button>
+        <button type="button" id="fav-import" class="ghost button" title="Import favorites JSON">⬆ Import JSON</button>
+        ${count ? `<button type="button" id="fav-clear" class="danger ghost button" title="Remove all favorites">🗑 Clear all</button>` : ""}
+      </div>
+    </div>
+    ${count
+      ? `<div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">${sorted.map((p, i) => photoTile(p, i, admin)).join("")}</div>`
+      : `<section class="empty"><p>No favorites yet. Click the ♡ icon on any photo in the gallery or in the lightbox to save it here.</p></section>`}
+  `);
+
+  const controls = document.querySelector(".gallery-controls");
+  if (controls) {
+    wireGalleryControls(
+      controls,
+      (newSort) => { currentSort = newSort; renderFavorites(); },
+      (newLayout) => {
+        currentLayout = newLayout;
+        const grid = document.querySelector(".photo-grid");
+        if (grid) grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+      }
+    );
+  }
+
+  document.getElementById("fav-export")?.addEventListener("click", () => {
+    const blob = new Blob([Favorites.exportJSON()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ordinary-favorites-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById("fav-import")?.addEventListener("click", () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      const added = Favorites.importJSON(text);
+      alert(`Imported ${added} favorite(s).`);
+      renderFavorites();
+    };
+    input.click();
+  });
+
+  document.getElementById("fav-clear")?.addEventListener("click", () => {
+    if (confirm("Clear all your saved favorites?")) {
+      Favorites.clear();
+      renderFavorites();
+    }
+  });
+
+  if (count) {
+    await mountPhotoGrid(sorted, admin, renderFavorites);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Instant Search (#/search)
+// ---------------------------------------------------------------------------
+async function renderSearch() {
+  markActiveNav("/search");
+  render(`<div class="page-head"><h2>Search</h2><p>Indexing catalog…</p></div><section class="loading"><p>Loading…</p></section>`);
+  try {
+    const cat = await getCatalog();
+    const collTitles = await collectionTitles();
+    const allPhotos = [];
+    for (const t of (cat.tags || [])) {
+      try {
+        const data = await fetchJSON(`/api/tags/${encodeURIComponent(t.name)}`);
+        allPhotos.push(...(data.images || []));
+      } catch {}
+    }
+    const uniquePhotos = Array.from(new Map(allPhotos.map((p) => [p.id, p])).values());
+    const admin = isLoggedIn();
+
+    const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");
+    const initialQuery = hashParams.get("q") || "";
+
+    function execute(q) {
+      const cleanQ = (q || "").trim();
+      const filtered = cleanQ ? searchPhotos(uniquePhotos, cleanQ, new Map(Object.entries(collTitles))) : [];
+      const count = filtered.length;
+      const sorted = sortPhotos(filtered, currentSort);
+
+      const popularTags = (cat.tags || []).slice(0, 8).map((t) =>
+        `<button type="button" class="chip tag-pill" data-query="#${esc(t.name)}">#${esc(t.name)} <span class="count">${t.count}</span></button>`
+      ).join("");
+
+      const resultsHtml = cleanQ
+        ? (count
+            ? `<div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">${sorted.map((p, i) => photoTile(p, i, admin)).join("")}</div>`
+            : `<section class="empty"><p>No photos matched “${esc(cleanQ)}”. Try other keywords or tags.</p></section>`)
+        : `<div style="text-align: center; color: var(--muted); margin: 3rem 0;">
+             <p>Type to search across tags, #hashtags, filenames, descriptions, and places.</p>
+           </div>`;
+
+      render(`
+        <div class="page-head">
+          <h2>Search Catalog</h2>
+          <p>Instant search across <strong>${uniquePhotos.length}</strong> photos</p>
+        </div>
+        <div class="search-container">
+          <div class="search-bar-wrap">
+            <input type="search" id="search-input" class="search-input" placeholder="Search tags, #hashtags, keywords, places… (Press /)" value="${esc(cleanQ)}" autofocus />
+            ${cleanQ ? `<button type="button" id="search-clear" class="search-clear-btn" title="Clear search">×</button>` : ""}
+          </div>
+          <div class="search-stats">
+            <span>${cleanQ ? `Found <strong>${count}</strong> match${count === 1 ? "" : "es"}` : "Popular tags to explore:"}</span>
+            ${cleanQ ? galleryControlsHtml(currentSort, currentLayout) : ""}
+          </div>
+          ${!cleanQ ? `<div class="search-suggestions">${popularTags}</div>` : ""}
+        </div>
+        <div id="search-results">${resultsHtml}</div>
+      `);
+
+      const input = document.getElementById("search-input");
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+        let debounceTimer;
+        input.addEventListener("input", (e) => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            const nextQ = e.target.value;
+            history.replaceState(null, "", `#/search${nextQ.trim() ? `?q=${encodeURIComponent(nextQ.trim())}` : ""}`);
+            execute(nextQ);
+          }, 100);
+        });
+      }
+
+      document.getElementById("search-clear")?.addEventListener("click", () => {
+        history.replaceState(null, "", "#/search");
+        execute("");
+      });
+
+      document.querySelectorAll(".tag-pill").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const qStr = btn.dataset.query;
+          history.replaceState(null, "", `#/search?q=${encodeURIComponent(qStr)}`);
+          execute(qStr);
+        });
+      });
+
+      const controls = document.querySelector(".gallery-controls");
+      if (controls) {
+        wireGalleryControls(
+          controls,
+          (newSort) => { currentSort = newSort; execute(cleanQ); },
+          (newLayout) => {
+            currentLayout = newLayout;
+            const grid = document.querySelector(".photo-grid");
+            if (grid) grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+          }
+        );
+      }
+
+      if (count) {
+        mountPhotoGrid(sorted, admin, () => execute(cleanQ));
+      }
+    }
+
+    execute(initialQuery);
+  } catch (err) {
+    render(`<section class="empty"><p>Couldn't load search: ${esc(err.message)}</p></section>`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Navigation & UI Helpers
+// ---------------------------------------------------------------------------
+function syncNavWithFlags() {
+  const nav = document.getElementById("site-nav");
+  if (!nav) return;
+  const flagMap = {
+    "/recent": "recentRoute",
+    "/random": "randomRoute",
+    "/favorites": "favorites",
+    "/search": "instantSearch",
+  };
+  nav.querySelectorAll("a").forEach((a) => {
+    const routeKey = a.dataset.route;
+    if (flagMap[routeKey] && !Flags.isEnabled(flagMap[routeKey])) {
+      a.hidden = true;
+    } else {
+      a.hidden = false;
+    }
+  });
+}
+
+function wireHelpModal() {
+  const helpModal = document.getElementById("help-modal");
+  const helpToggle = document.getElementById("help-toggle");
+  const helpClose = document.getElementById("help-close");
+  const helpShowTips = document.getElementById("help-show-tips");
+
+  if (helpToggle && helpModal) {
+    helpToggle.addEventListener("click", () => { helpModal.hidden = false; });
+    helpClose?.addEventListener("click", () => { helpModal.hidden = true; });
+    helpModal.addEventListener("click", (e) => { if (e.target === helpModal) helpModal.hidden = true; });
+  }
+
+  if (helpShowTips) {
+    helpShowTips.checked = localStorage.getItem("oc.showTips") === "true";
+    helpShowTips.addEventListener("change", (e) => {
+      localStorage.setItem("oc.showTips", String(e.target.checked));
+      document.querySelectorAll(".help-tip-badge").forEach((el) => {
+        el.style.display = e.target.checked ? "inline-flex" : "none";
+      });
+    });
+  }
+
+  // Keyboard shortcut ? and /
+  document.addEventListener("keydown", (e) => {
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    if (e.key === "?" && lightbox.hidden) {
+      if (helpModal) helpModal.hidden = !helpModal.hidden;
+    } else if (e.key === "/" && lightbox.hidden) {
+      e.preventDefault();
+      location.hash = "#/search";
+    }
+  });
+}
+
+function wireDragDropUpload() {
+  const overlay = document.getElementById("drag-drop-overlay");
+  if (!overlay) return;
+  let dragCounter = 0;
+
+  window.addEventListener("dragenter", (e) => {
+    if (!isLoggedIn() || !Flags.isEnabled("dragDropUpload")) return;
+    if (e.dataTransfer?.types?.includes("Files")) {
+      dragCounter++;
+      overlay.hidden = false;
+    }
+  });
+
+  window.addEventListener("dragleave", (e) => {
+    if (!isLoggedIn() || !Flags.isEnabled("dragDropUpload")) return;
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      overlay.hidden = true;
+    }
+  });
+
+  window.addEventListener("dragover", (e) => {
+    if (!isLoggedIn() || !Flags.isEnabled("dragDropUpload")) return;
+    e.preventDefault();
+  });
+
+  window.addEventListener("drop", (e) => {
+    if (!isLoggedIn() || !Flags.isEnabled("dragDropUpload")) return;
+    e.preventDefault();
+    dragCounter = 0;
+    overlay.hidden = true;
+
+    const files = Array.from(e.dataTransfer?.files || []).filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+
+    const modal = document.getElementById("upload-modal");
+    const input = document.getElementById("upload-files");
+    if (modal && input) {
+      const dt = new DataTransfer();
+      files.forEach((f) => dt.items.add(f));
+      input.files = dt.files;
+      modal.hidden = false;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 function route() {
-  const hash = location.hash.replace(/^#/, "") || "/";
-  events.emit("route:change", { hash });
+  const fullHash = location.hash.replace(/^#/, "") || "/";
+  events.emit("route:change", { hash: fullHash });
+  const [hash] = fullHash.split("?");
+
   if (hash === "/tags" || hash === "/categories") return renderTags();
   if (hash === "/collections") return renderCollections();
   if (hash === "/map") return renderMap();
+  if (hash === "/random" && Flags.isEnabled("randomRoute")) return renderRandom();
+  if (hash === "/latest" && Flags.isEnabled("latestRoute")) return renderLatest();
+  if (hash === "/recent" && Flags.isEnabled("recentRoute")) return renderRecent();
+  if (hash === "/favorites" && Flags.isEnabled("favorites")) return renderFavorites();
+  if (hash === "/search" && Flags.isEnabled("instantSearch")) return renderSearch();
+
   let m = hash.match(/^\/near\/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(\d+(?:\.\d+)?)$/);
   if (m) return renderNearby(Number(m[1]), Number(m[2]), Number(m[3]));
   m = hash.match(/^\/(?:t|c)\/(.+)$/);
@@ -1403,6 +2086,10 @@ window.addEventListener("hashchange", () => {
 
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   applyThemeButton();
+  wireHelpModal();
+  wireDragDropUpload();
+  syncNavWithFlags();
+
   await handleAuthRedirect();
   renderAuthNav();
   route();

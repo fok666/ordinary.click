@@ -57,7 +57,7 @@ Or run individually:
 
 ### General
 
-Work in small testable steps. Test after each step. Do not move on until the step is tested and working. Use short lived git branches to isolate changes. Prefer small incremental pull requests. The goal is to maintain a codebase with minimal regressions and high velocity.
+Work in small testable steps. Test after each step. Do not move on until the step is tested and working. Use short lived git branches to isolate changes. Commit frequently, push often. Prefer small incremental pull requests. The goal is to maintain a codebase with minimal regressions and high velocity.
 
 ### Python (Lambdas)
 
