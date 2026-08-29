@@ -34,16 +34,30 @@ python3 -m pip install --target terraform/build/processor \
   --python-version 3.14 --only-binary=:all: \
   -r lambda/processor/requirements.txt
 
+# Local development (zero AWS dependencies)
+python3 scripts/dev-server.py 8000
+
 # Site deployment (done by GitHub Actions)
 aws s3 sync site/ s3://<site-bucket>/ --delete
 aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
 ```
 
-No linting is configured. The only test is `python3 test_api_handler.py` (repo
-root, stdlib only), covering admin-route authorization and hashtag-tag
-extraction in the API Lambda.
+## Testing
+
+Run all tests via the unified runner:
+```bash
+./test.sh
+```
+Or run individually:
+- `python3 test_api_handler.py`: API Lambda router authorization & hashtag parsing
+- `python3 test_processor.py`: Processor Lambda image resizing, GPS extraction & DynamoDB updates
+- `node --test test_site.js`: Client-side feature flags, plugin engine & helper parity tests
 
 ## Code Conventions
+
+### General
+
+Work in small testable steps. Test after each step. Do not move on until the step is tested and working. Use short lived git branches to isolate changes. Prefer small incremental pull requests. The goal is to maintain a codebase with minimal regressions and high velocity.
 
 ### Python (Lambdas)
 

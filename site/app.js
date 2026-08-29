@@ -20,6 +20,9 @@
 //
 // Cognito config is fetched at runtime from /api/config (no build step).
 
+import { Flags } from "./flags.js";
+import { events, themes, layouts, widgets, options } from "./plugins.js";
+
 const app = document.getElementById("app");
 const authNav = document.getElementById("auth-nav");
 
@@ -58,8 +61,7 @@ function applyThemeButton() {
 }
 function toggleTheme() {
   const next = currentTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
+  themes.apply(next);
   applyThemeButton();
 }
 
@@ -117,7 +119,19 @@ async function pkcePair() {
 }
 
 async function startLogin() {
-  const cfg = (await getConfig()).cognito;
+  const config = await getConfig();
+  if (config?.devMode) {
+    try {
+      const devTokens = await fetchJSON("/api/dev/auth");
+      setTokens(devTokens);
+      renderAuthNav();
+      route();
+      return;
+    } catch (err) {
+      console.warn("Dev auth failed", err);
+    }
+  }
+  const cfg = config?.cognito;
   if (!cfg?.domain || !cfg?.clientId) { alert("Login is not configured."); return; }
   const { verifier, challenge } = await pkcePair();
   const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
@@ -1359,6 +1373,7 @@ async function renderMap() {
 // ---------------------------------------------------------------------------
 function route() {
   const hash = location.hash.replace(/^#/, "") || "/";
+  events.emit("route:change", { hash });
   if (hash === "/tags" || hash === "/categories") return renderTags();
   if (hash === "/collections") return renderCollections();
   if (hash === "/map") return renderMap();

@@ -46,3 +46,5 @@ lambda/**/*.pyc
 
 assets
 .cachebro
+plan.md
+TODO.md
