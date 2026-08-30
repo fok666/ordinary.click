@@ -107,6 +107,36 @@ resource "aws_s3_bucket_cors_configuration" "images" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "images" {
+  bucket = aws_s3_bucket.images.id
+
+  # Abort incomplete multipart uploads after specified days to prevent phantom storage costs
+  rule {
+    id     = "abort-incomplete-multipart"
+    status = "Enabled"
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = var.s3_abort_multipart_days
+    }
+  }
+
+  # Transition raw original images to Glacier Instant Retrieval after specified days
+  rule {
+    id     = "archive-originals"
+    status = var.s3_originals_glacier_days > 0 ? "Enabled" : "Disabled"
+
+    filter {
+      prefix = "originals/"
+    }
+
+    transition {
+      days          = var.s3_originals_glacier_days
+      storage_class = "GLACIER_IR"
+    }
+  }
+}
+
 ################################################################################
 # Bucket policies: allow only this CloudFront distribution to read
 ################################################################################
