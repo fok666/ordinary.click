@@ -5,9 +5,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // Import modules to test
-import { Flags, DEFAULT_FLAGS } from "../site/flags.js";
-import { events, EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry } from "../site/plugins.js";
-import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags } from "../site/tagcloud.js";
+import { Flags, DEFAULT_FLAGS, FLAG_DEFINITIONS } from "../site/flags.js";
+import { events, EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry, widgets, options } from "../site/plugins.js";
+import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags, getThemeColors } from "../site/tagcloud.js";
 import { Favorites } from "../site/favorites.js";
 import { sortPhotos, groupPhotosByDate, getVisualPhotoItems, getPhotosInVisualOrder } from "../site/sorter.js";
 import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "../site/search.js";
@@ -642,3 +642,83 @@ test("AI Tags: approving and merging AI suggestions into photo categories", () =
   const allMerged = addAll(photo.categories, photo.ai_tags);
   assert.deepEqual(allMerged, ["forest", "mountain", "nature"]);
 });
+
+// ---------------------------------------------------------------------------
+// Tests: Flag Definitions & Explanations Metadata
+// ---------------------------------------------------------------------------
+test("Flags: metadata catalog defines explanations and impact for every flag", () => {
+  const defs = Flags.getDefinitions();
+  assert.ok(Object.keys(defs).length >= 12);
+
+  for (const [id, def] of Object.entries(defs)) {
+    assert.equal(def.id, id);
+    assert.ok(typeof def.label === "string" && def.label.length > 0, `Missing label for ${id}`);
+    assert.ok(typeof def.category === "string" && def.category.length > 0, `Missing category for ${id}`);
+    assert.ok(typeof def.purpose === "string" && def.purpose.length > 10, `Missing purpose explanation for ${id}`);
+    assert.ok(typeof def.impact === "string" && def.impact.length > 10, `Missing impact explanation for ${id}`);
+    assert.equal(typeof def.default, "boolean", `Missing default for ${id}`);
+  }
+
+  const report = Flags.getDetailedReport();
+  for (const [id, item] of Object.entries(report)) {
+    assert.equal(item.id, id);
+    assert.equal(typeof item.enabled, "boolean");
+    assert.ok(["default", "storage", "query", "beta"].includes(item.source));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Tests: TagCloud Theme Colors Resolution
+// ---------------------------------------------------------------------------
+test("TagCloud: getThemeColors resolves fallback colors in headless environment", () => {
+  const colors = getThemeColors();
+  assert.ok(colors.baseColor);
+  assert.ok(colors.accentColor);
+  assert.equal(typeof colors.isDark, "boolean");
+});
+
+// ---------------------------------------------------------------------------
+// Tests: Search Matcher XSS Hardening
+// ---------------------------------------------------------------------------
+test("Search: highlightMatches escapes raw HTML and preserves safe mark tags", () => {
+  const malicious = '<script>alert("xss")</script> sunset at lake';
+  const highlighted = highlightMatches(malicious, "sunset");
+
+  // Script tags MUST be escaped into HTML entities
+  assert.ok(!highlighted.includes("<script>"));
+  assert.ok(highlighted.includes("&lt;script&gt;"));
+  // Matched keyword is safely wrapped
+  assert.ok(highlighted.includes('<mark class="search-highlight">sunset</mark>'));
+});
+
+// ---------------------------------------------------------------------------
+// Tests: OptionsRegistry Built-in Options & Widgets
+// ---------------------------------------------------------------------------
+test("OptionsRegistry: registers baseline options with explanations and validation", () => {
+  const allOpts = options.getAll();
+  const ids = allOpts.map((o) => o.id);
+  assert.ok(ids.includes("theme"));
+  assert.ok(ids.includes("layout"));
+  assert.ok(ids.includes("sortStrategy"));
+  assert.ok(ids.includes("tagCloudMaxTags"));
+  assert.ok(ids.includes("showMicroTips"));
+
+  assert.equal(options.getValue("layout"), "grid");
+  options.setValue("layout", "masonry");
+  assert.equal(options.getValue("layout"), "masonry");
+  options.setValue("layout", "grid"); // restore
+});
+
+test("WidgetRegistry: registers and executes tagcloud widget slot", () => {
+  let initCalled = false;
+  const mockContainer = { innerHTML: "", querySelector: () => ({ id: "tagcloud-canvas" }) };
+
+  widgets.renderSlot("cover:tagcloud", mockContainer, {
+    tags: [{ name: "nature", count: 5 }],
+    onInit: () => { initCalled = true; },
+  });
+
+  assert.ok(mockContainer.innerHTML.includes("tagcloud-canvas"));
+  assert.equal(initCalled, true);
+});
+
