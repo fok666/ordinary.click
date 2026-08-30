@@ -40,10 +40,10 @@ export const FLAG_DEFINITIONS = {
   },
   recentRoute: {
     id: "recentRoute",
-    label: "Recent Timeline Archive",
+    label: "Recent Photo Spotlight",
     category: "Discovery & Navigation",
-    purpose: "Enables the #/recent route rendering uploads grouped by chronological buckets (Today, Yesterday, This Week, Month Year).",
-    impact: "Renders an organized chronological timeline. Performs client-side date clustering on the photo catalog.",
+    purpose: "Enables the #/recent navigation tab and route spotlighting the single most recent picture by timestamp.",
+    impact: "Displays only the single latest photo by timestamp, preventing thousands of concurrent image requests on catalog load.",
     default: true,
   },
   dragDropUpload: {

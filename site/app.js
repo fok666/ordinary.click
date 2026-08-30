@@ -1724,105 +1724,41 @@ async function renderRandom() {
 }
 
 // ---------------------------------------------------------------------------
-// Latest Photo Route (#/latest)
+// Recent Photo Route (#/recent, #/latest)
+// Shows only the single last picture by timestamp to prevent thousands of requests.
 // ---------------------------------------------------------------------------
-async function renderLatest() {
-  markActiveNav("/latest");
-  render(`<div class="page-head"><h2>Latest Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
+async function renderRecent() {
+  markActiveNav("/recent");
+  render(`<div class="page-head"><h2>Recent Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
   try {
     const photos = await getPhotos();
     const sorted = sortPhotos(photos, "date-desc");
     if (!sorted.length) {
-      render(`<div class="page-head"><h2>Latest Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
+      render(`<div class="page-head"><h2>Recent Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
       return;
     }
     const latest = sorted[0];
     const tags = photoTags(latest);
     render(`
       <div class="page-head">
-        <h2>✨ Latest Photo</h2>
+        <h2>✨ Recent Photo</h2>
         <p>${latest.description ? descHtml(latest.description) : (latest.filename || "Uploaded recently")}</p>
+        ${tags.length ? `
         <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap;">
-          ${tags.length ? `<a href="#/t/${encodeURIComponent(tags[0])}" class="ghost button">Explore #${esc(tags[0])} →</a>` : ""}
-          <a href="#/recent" class="ghost button">View timeline archive →</a>
-        </div>
+          <a href="#/t/${encodeURIComponent(tags[0])}" class="ghost button">Explore #${esc(tags[0])} →</a>
+        </div>` : ""}
       </div>
       <div class="photo-grid" style="max-width: 640px; margin: 1.5rem auto;">
         ${photoTile(latest, 0, isLoggedIn())}
       </div>
     `);
 
-    await mountPhotoGrid([latest], isLoggedIn(), renderLatest);
+    await mountPhotoGrid([latest], isLoggedIn(), renderRecent);
   } catch (err) {
-    render(`<section class="empty"><p>Couldn't load latest photo: ${esc(err.message)}</p></section>`);
+    render(`<section class="empty"><p>Couldn't load recent photo: ${esc(err.message)}</p></section>`);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Recent Timeline View (#/recent)
-// ---------------------------------------------------------------------------
-async function renderRecent() {
-  markActiveNav("/recent");
-  render(`<div class="page-head"><h2>Recent Moments</h2><p>Organizing timeline…</p></div><section class="loading"><p>Loading…</p></section>`);
-  try {
-    const photos = await getPhotos();
-    if (!photos.length) {
-      render(`<div class="page-head"><h2>Recent Moments</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
-      return;
-    }
-    const groups = groupPhotosByDate(photos);
-    const admin = isLoggedIn();
-    const allOrderedPhotos = groups.flatMap((g) => g.photos);
-
-    let globalIndex = 0;
-    const sectionsHtml = groups.map((g) => {
-      const groupTiles = g.photos.map((p) => photoTile(p, globalIndex++, admin)).join("");
-      return `
-        <section class="timeline-group" style="margin-bottom: 2.5rem;">
-          <div class="group-header" style="display: flex; align-items: baseline; gap: .8rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: .4rem;">
-            <h3 style="margin: 0; font-size: 1.25rem;">${esc(g.label)}</h3>
-            <span style="font-size: .8rem; color: var(--muted);">${g.photos.length} photo${g.photos.length === 1 ? "" : "s"}</span>
-          </div>
-          <div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">
-            ${groupTiles}
-          </div>
-        </section>
-      `;
-    }).join("");
-
-    render(`
-      <div class="page-head">
-        <h2>⏱️ Recent Moments</h2>
-        <p>A chronological walk through your recent memories (<strong>${photos.length}</strong> photos)</p>
-        <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap;">
-          <a href="#/latest" class="ghost button">Jump to newest photo →</a>
-          ${galleryControlsHtml(currentSort, currentLayout)}
-        </div>
-      </div>
-      <div class="timeline-container">
-        ${sectionsHtml}
-      </div>
-    `);
-
-    const controls = document.querySelector(".gallery-controls");
-    if (controls) {
-      wireGalleryControls(
-        controls,
-        () => renderRecent(),
-        (newLayout) => {
-          currentLayout = newLayout;
-          document.querySelectorAll(".photo-grid").forEach((grid) => {
-            grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
-          });
-        }
-      );
-    }
-
-    await mountPhotoGrid(allOrderedPhotos, admin, renderRecent);
-  } catch (err) {
-    render(`<section class="empty"><p>Couldn't load recent moments: ${esc(err.message)}</p></section>`);
-  }
-}
+const renderLatest = renderRecent;
 
 // ---------------------------------------------------------------------------
 // User Favorites (#/favorites)
