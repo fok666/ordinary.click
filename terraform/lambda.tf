@@ -258,9 +258,9 @@ resource "aws_lambda_function" "processor" {
     variables = {
       IMAGE_BUCKET               = aws_s3_bucket.images.bucket
       CATALOG_TABLE              = aws_dynamodb_table.catalog.name
-      DISPLAY_MAX_PX             = "2048"
-      THUMB_MAX_PX               = "400"
-      JPEG_QUALITY               = "85"
+      DISPLAY_MAX_PX             = tostring(var.display_max_px)
+      THUMB_MAX_PX               = tostring(var.thumb_max_px)
+      JPEG_QUALITY               = tostring(var.jpeg_quality)
       REKOGNITION_ENABLED        = var.rekognition_enabled ? "true" : "false"
       REKOGNITION_MIN_CONFIDENCE = tostring(var.rekognition_min_confidence)
       REKOGNITION_MAX_LABELS     = tostring(var.rekognition_max_labels)
