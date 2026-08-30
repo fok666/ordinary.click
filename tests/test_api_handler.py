@@ -132,6 +132,26 @@ def demo():
     assert "categories = :cats" in call_args["UpdateExpression"]
     assert "REMOVE ai_tags" in call_args["UpdateExpression"]
 
+    # Test _rename_tag compound atomic UpdateExpression
+    mock_ddb.reset_mock()
+    handler._all_photos = lambda: [
+        {"pk": "PHOTO", "sk": "photo1", "categories": {"nature", "landscape"}},
+        {"pk": "PHOTO", "sk": "photo2", "categories": {"urban"}},
+    ]
+    rename_res = handler._rename_tag("nature", {"newName": "wildlife"})
+    assert rename_res["statusCode"] == 200, rename_res
+    assert mock_ddb.update_item.call_count == 1, f"Expected 1 atomic update, got {mock_ddb.update_item.call_count}"
+    rename_args = mock_ddb.update_item.call_args.kwargs
+    assert rename_args["UpdateExpression"] == "DELETE categories :old ADD categories :new"
+    assert rename_args["ExpressionAttributeValues"][":old"] == {"nature"}
+    assert rename_args["ExpressionAttributeValues"][":new"] == {"wildlife"}
+
+    # Test _rename_tag no-op when names match
+    mock_ddb.reset_mock()
+    noop_res = handler._rename_tag("nature", {"newName": "nature"})
+    assert noop_res["statusCode"] == 200
+    assert mock_ddb.update_item.call_count == 0
+
     print("ok")
 
 
