@@ -103,6 +103,29 @@ function openThemeModal() {
   if (!modal) return;
   populateThemeModal();
   modal.hidden = false;
+  document.getElementById("theme-modal-close")?.focus();
+}
+
+function closeThemeModal() {
+  const modal = document.getElementById("theme-modal");
+  if (modal) modal.hidden = true;
+  document.getElementById("theme-toggle")?.focus();
+}
+
+function wireThemeModal() {
+  const modal = document.getElementById("theme-modal");
+  const closeBtn = document.getElementById("theme-modal-close");
+  if (!modal) return;
+
+  closeBtn?.addEventListener("click", closeThemeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeThemeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) {
+      closeThemeModal();
+    }
+  });
 }
 
 function toggleTheme() {
@@ -2118,6 +2141,7 @@ window.addEventListener("hashchange", () => {
 
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   applyThemeButton();
+  wireThemeModal();
   wireHelpModal();
   wireDragDropUpload();
   syncNavWithFlags();

@@ -3,6 +3,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 // Import modules to test
 import { Flags, DEFAULT_FLAGS, FLAG_DEFINITIONS } from "../site/flags.js";
@@ -721,4 +722,74 @@ test("WidgetRegistry: registers and executes tagcloud widget slot", () => {
   assert.ok(mockContainer.innerHTML.includes("tagcloud-canvas"));
   assert.equal(initCalled, true);
 });
+
+// ---------------------------------------------------------------------------
+// Tests: Theme Modal Dismissal Wiring
+// ---------------------------------------------------------------------------
+test("Theme Modal: Done button, backdrop click, and Escape key dismiss modal", () => {
+  const indexHtml = fs.readFileSync(new URL("../site/index.html", import.meta.url), "utf8");
+  const appJs = fs.readFileSync(new URL("../site/app.js", import.meta.url), "utf8");
+
+  // Verify markup structure
+  assert.ok(indexHtml.includes('id="theme-modal"'), "index.html must contain #theme-modal");
+  assert.ok(indexHtml.includes('id="theme-modal-close"'), "index.html must contain #theme-modal-close");
+
+  // Verify wireThemeModal and closeThemeModal are implemented and called in app.js
+  assert.ok(appJs.includes("function wireThemeModal"), "app.js must define wireThemeModal");
+  assert.ok(appJs.includes("function closeThemeModal"), "app.js must define closeThemeModal");
+  assert.ok(appJs.includes("wireThemeModal();"), "app.js main() must call wireThemeModal()");
+
+  // Extract function implementations from app.js
+  const wireMatch = appJs.match(/function wireThemeModal\(\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(wireMatch, "wireThemeModal implementation body must be found in app.js");
+  const closeMatch = appJs.match(/function closeThemeModal\(\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(closeMatch, "closeThemeModal implementation body must be found in app.js");
+
+  // Test functional execution with mock DOM elements
+  let modalHidden = false;
+  const clickListeners = {};
+  let keydownListener = null;
+
+  const mockModal = {
+    get hidden() { return modalHidden; },
+    set hidden(val) { modalHidden = val; },
+    addEventListener: (evt, fn) => { clickListeners["modal:" + evt] = fn; },
+  };
+  const mockCloseBtn = {
+    addEventListener: (evt, fn) => { clickListeners["close:" + evt] = fn; },
+  };
+  const mockDoc = {
+    getElementById: (id) => {
+      if (id === "theme-modal") return mockModal;
+      if (id === "theme-modal-close") return mockCloseBtn;
+      return null;
+    },
+    addEventListener: (evt, fn) => {
+      if (evt === "keydown") keydownListener = fn;
+    },
+  };
+
+  const closeFn = new Function("document", closeMatch[1]);
+  const wireFn = new Function("document", "closeThemeModal", wireMatch[1]);
+  wireFn(mockDoc, () => closeFn(mockDoc));
+
+  // 1. Done button click must close the dialog
+  mockModal.hidden = false;
+  assert.equal(typeof clickListeners["close:click"], "function", "Done button must have click listener");
+  clickListeners["close:click"]();
+  assert.equal(mockModal.hidden, true, "Clicking Done button must close theme modal");
+
+  // 2. Backdrop click must close the dialog
+  mockModal.hidden = false;
+  assert.equal(typeof clickListeners["modal:click"], "function", "Modal must have backdrop click listener");
+  clickListeners["modal:click"]({ target: mockModal });
+  assert.equal(mockModal.hidden, true, "Clicking backdrop must close theme modal");
+
+  // 3. Escape key must close the dialog
+  mockModal.hidden = false;
+  assert.equal(typeof keydownListener, "function", "Escape keydown listener must be attached");
+  keydownListener({ key: "Escape" });
+  assert.equal(mockModal.hidden, true, "Pressing Escape must close theme modal");
+});
+
 
