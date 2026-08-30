@@ -88,3 +88,33 @@ variable "rekognition_auto_merge" {
   default     = false
 }
 
+variable "display_max_px" {
+  description = "Maximum bounding edge in pixels for generated display derivatives. Directly impacts display image file sizes and bandwidth."
+  type        = number
+  default     = 2048
+}
+
+variable "thumb_max_px" {
+  description = "Maximum bounding edge in pixels for gallery thumbnails. Determines initial grid load weight."
+  type        = number
+  default     = 400
+}
+
+variable "jpeg_quality" {
+  description = "JPEG compression quality factor (1-100). 85 provides near-lossless visual quality with ~40% file size reduction over 95."
+  type        = number
+  default     = 85
+}
+
+variable "s3_originals_glacier_days" {
+  description = "Days before transitioning raw originals/ images to S3 Glacier Instant Retrieval (GLACIER_IR). Reduces raw storage costs by ~80%."
+  type        = number
+  default     = 30
+}
+
+variable "s3_abort_multipart_days" {
+  description = "Days after which incomplete multipart uploads in the image bucket are automatically aborted. Prevents hidden billing leaks from abandoned browser uploads."
+  type        = number
+  default     = 7
+}
+
