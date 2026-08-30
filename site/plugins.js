@@ -297,6 +297,30 @@ export class WidgetRegistry {
 
 export const widgets = new WidgetRegistry();
 
+// Register built-in widgets
+widgets.register("tagcloud", {
+  slot: "cover:tagcloud",
+  name: "3D Interactive Tag Cloud",
+  render: (container, ctx = {}) => {
+    const tags = ctx.tags || [];
+    if (!tags.length) return;
+    const maxTags = options.getValue("tagCloudMaxTags") || 35;
+    container.innerHTML = `
+      <div class="tagcloud-wrapper">
+        <div class="tagcloud-header">
+          <h3>Interactive 3D Tag Cloud</h3>
+          <div class="tagcloud-hint">Drag with mouse or touch to rotate • Click tag to explore</div>
+        </div>
+        <canvas id="tagcloud-canvas" class="tagcloud-canvas"></canvas>
+      </div>
+    `;
+    const canvas = container.querySelector("#tagcloud-canvas");
+    if (canvas && typeof ctx.onInit === "function") {
+      ctx.onInit(canvas, maxTags);
+    }
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Options Registry
 // ---------------------------------------------------------------------------
@@ -304,6 +328,43 @@ export class OptionsRegistry {
   constructor() {
     this._options = new Map();
     this._values = new Map();
+
+    // Register baseline user options with explanations and defaults
+    this.register("theme", {
+      name: "Color Theme",
+      description: "Color palette and contrast preset",
+      type: "select",
+      options: ["light", "dark", "monochrome", "sepia", "nordic", "oled"],
+      default: "light",
+    });
+    this.register("layout", {
+      name: "Default Grid Layout",
+      description: "Grid presentation strategy (uniform tiles, masonry columns, justified rows, compact list)",
+      type: "select",
+      options: ["grid", "masonry", "justified", "compact"],
+      default: "grid",
+    });
+    this.register("sortStrategy", {
+      name: "Default Sort Order",
+      description: "Default ordering applied to photo collections",
+      type: "select",
+      options: ["date-desc", "date-asc", "name-asc", "name-desc", "tags-desc"],
+      default: "date-desc",
+    });
+    this.register("tagCloudMaxTags", {
+      name: "Tag Cloud Density",
+      description: "Maximum number of tags plotted on the 3D rotating sphere",
+      type: "number",
+      min: 10,
+      max: 60,
+      default: 35,
+    });
+    this.register("showMicroTips", {
+      name: "Contextual Micro-Tips",
+      description: "Display subtle inline (!) hint badges for hashtags and multi-tag filtering",
+      type: "boolean",
+      default: true,
+    });
   }
 
   register(id, opt) {
