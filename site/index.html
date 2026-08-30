@@ -13,10 +13,12 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="icon" href="data:," />
   <script>
-    // Apply saved theme before first paint to avoid a flash.
+    // Apply saved theme before first paint to avoid a flash across all theme presets.
     try {
       var t = localStorage.getItem("oc.theme");
-      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      if (t && /^[a-z0-9_-]{1,32}$/.test(t)) {
+        document.documentElement.dataset.theme = t;
+      }
     } catch (e) {}
   </script>
 </head>
@@ -183,7 +185,6 @@
     <small>&copy; my.ordinary.click &mdash;
       Images licensed under <a href="/license.html" rel="license">CC BY-SA 4.0 + AI Training Openness Addendum</a>.
     </small>
-    </p>
     <small>
       <a href="https://github.com/fok666/ordinary.click"><img src="https://github.githubassets.com/favicons/favicon.png" width="14" height="14" alt="Code in GitHub" /></a> Code released under <a href="https://opensource.org/licenses/MIT">MIT</a> license.
     </small>
