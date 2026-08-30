@@ -24,7 +24,7 @@ import { Flags } from "./flags.js";
 import { events, themes, layouts, widgets, options } from "./plugins.js";
 import { initTagCloud } from "./tagcloud.js";
 import { Favorites } from "./favorites.js";
-import { sortPhotos, groupPhotosByDate } from "./sorter.js";
+import { sortPhotos, groupPhotosByDate, getPhotosInVisualOrder } from "./sorter.js";
 import { tokenizeQuery, searchPhotos, highlightMatches } from "./search.js";
 
 const app = document.getElementById("app");
@@ -832,11 +832,13 @@ async function mountPhotoGrid(photos, admin, onChanged) {
     node.addEventListener("click", () => {
       const itemEl = node.closest(".photo-item");
       const id = itemEl?.dataset.id;
-      let idx = id ? photos.findIndex((p) => p.id === id) : -1;
+      const gridEl = itemEl?.closest(".photo-grid") || document.querySelector(".photo-grid");
+      const activePhotos = getPhotosInVisualOrder(gridEl, photos);
+      let idx = id ? activePhotos.findIndex((p) => p.id === id) : -1;
       if (idx === -1) {
         idx = parseInt(itemEl?.dataset.index || "0", 10);
       }
-      openLightbox(photos, idx);
+      openLightbox(activePhotos, Math.max(0, idx));
     });
   });
 
@@ -1080,14 +1082,16 @@ function wireGalleryControls(container, onSortChange, onLayoutChange) {
 // ---------------------------------------------------------------------------
 const DRILLDOWN_HTML = `<div id="tag-drilldown" class="chip-row drilldown"></div>`;
 
-async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
+async function mountDrilldown(photos, admin, onChanged, baseTag = null, sortStrategy = null) {
   const box = document.getElementById("tag-drilldown");
   const selected = new Set();
 
   async function apply(rebuild) {
     // `selected` and data-tag hold fold keys; chips display the first-seen spelling.
     const filtered = photos.filter((p) => [...selected].every((k) => photoTags(p).some((x) => foldTag(x) === k)));
-    const sorted = sortPhotos(filtered, currentSort);
+    const sorted = sortStrategy === false
+      ? filtered
+      : sortPhotos(filtered, sortStrategy || currentSort);
 
     if (box) {
       const counts = new Map(); // fold key -> { name, n }
@@ -1131,7 +1135,7 @@ async function mountDrilldown(photos, admin, onChanged, baseTag = null) {
   if (controls) {
     wireGalleryControls(
       controls,
-      (newSort) => { currentSort = newSort; apply(true); },
+      (newSort) => { currentSort = newSort; sortStrategy = newSort; apply(true); },
       (newLayout) => {
         currentLayout = newLayout;
         const grid = document.querySelector(".photo-grid");
@@ -1568,7 +1572,7 @@ async function renderNearby(lat, lng, km) {
         ? `<div class="photo-grid">${photos.map((p, i) => photoTile(p, i, admin)).join("")}</div>`
         : `<section class="empty"><p>No photos within ${km} km. Try a wider radius.</p></section>`}
     `);
-    await mountDrilldown(photos, admin, () => renderNearby(lat, lng, km));
+    await mountDrilldown(photos, admin, () => renderNearby(lat, lng, km), null, false);
   } catch (err) {
     render(`<section class="empty"><a class="breadcrumb" href="#/map">← Map</a><p>Couldn't load nearby photos: ${esc(err.message)}</p></section>`);
   }

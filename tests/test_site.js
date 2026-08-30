@@ -9,7 +9,7 @@ import { Flags, DEFAULT_FLAGS } from "../site/flags.js";
 import { events, EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry } from "../site/plugins.js";
 import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags } from "../site/tagcloud.js";
 import { Favorites } from "../site/favorites.js";
-import { sortPhotos, groupPhotosByDate } from "../site/sorter.js";
+import { sortPhotos, groupPhotosByDate, getVisualPhotoItems, getPhotosInVisualOrder } from "../site/sorter.js";
 import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "../site/search.js";
 
 // Helper mocks for browser globals when testing in Node
@@ -466,4 +466,158 @@ test("Recent Photo: sortPhotos date-desc correctly identifies the single latest 
   const latest = sorted[0];
   assert.equal(latest.id, "newest");
 });
+
+test("Visual Order: getPhotosInVisualOrder reorders multi-column down-column items to horizontal reading order", () => {
+  // Simulate 3 columns where DOM order flows down columns:
+  // Col 1: P1, P2
+  // Col 2: P3, P4
+  // Col 3: P5, P6
+  // Visually on screen:
+  // Row 1: P1 (x:0, y:100), P3 (x:200, y:100), P5 (x:400, y:100)
+  // Row 2: P2 (x:0, y:300), P4 (x:200, y:300), P6 (x:400, y:300)
+  const photos = [
+    { id: "p1", filename: "1.jpg" },
+    { id: "p2", filename: "2.jpg" },
+    { id: "p3", filename: "3.jpg" },
+    { id: "p4", filename: "4.jpg" },
+    { id: "p5", filename: "5.jpg" },
+    { id: "p6", filename: "6.jpg" },
+  ];
+
+  const positions = {
+    p1: { top: 100, left: 0, width: 180, height: 180 },
+    p2: { top: 300, left: 0, width: 180, height: 180 },
+    p3: { top: 100, left: 200, width: 180, height: 180 },
+    p4: { top: 300, left: 200, width: 180, height: 180 },
+    p5: { top: 100, left: 400, width: 180, height: 180 },
+    p6: { top: 300, left: 400, width: 180, height: 180 },
+  };
+
+  const mockItems = ["p1", "p2", "p3", "p4", "p5", "p6"].map((id) => ({
+    dataset: { id },
+    getBoundingClientRect: () => positions[id],
+  }));
+
+  const mockGrid = {
+    querySelectorAll: (sel) => (sel === ".photo-item" ? mockItems : []),
+  };
+
+  const visualPhotos = getPhotosInVisualOrder(mockGrid, photos);
+  const ids = visualPhotos.map((p) => p.id);
+
+  // Must match row 1 left-to-right, then row 2 left-to-right
+  assert.deepEqual(ids, ["p1", "p3", "p5", "p2", "p4", "p6"]);
+
+  // Verify next/prev navigation follows what's on screen:
+  // After p1 (top-left), next must be p3 (top-middle), NOT p2 (bottom-left)
+  const idxP1 = visualPhotos.findIndex((p) => p.id === "p1");
+  assert.equal(visualPhotos[idxP1 + 1].id, "p3");
+
+  // After p5 (top-right), next must wrap to p2 (start of row 2)
+  const idxP5 = visualPhotos.findIndex((p) => p.id === "p5");
+  assert.equal(visualPhotos[idxP5 + 1].id, "p2");
+});
+
+test("Visual Order: getPhotosInVisualOrder maintains standard row-by-row grid order", () => {
+  const photos = [
+    { id: "a", filename: "a.jpg" },
+    { id: "b", filename: "b.jpg" },
+    { id: "c", filename: "c.jpg" },
+    { id: "d", filename: "d.jpg" },
+  ];
+
+  const positions = {
+    a: { top: 50, left: 0, width: 200, height: 200 },
+    b: { top: 50, left: 220, width: 200, height: 200 },
+    c: { top: 270, left: 0, width: 200, height: 200 },
+    d: { top: 270, left: 220, width: 200, height: 200 },
+  };
+
+  const mockItems = ["a", "b", "c", "d"].map((id) => ({
+    dataset: { id },
+    getBoundingClientRect: () => positions[id],
+  }));
+
+  const mockGrid = {
+    querySelectorAll: (sel) => (sel === ".photo-item" ? mockItems : []),
+  };
+
+  const visualPhotos = getPhotosInVisualOrder(mockGrid, photos);
+  assert.deepEqual(visualPhotos.map((p) => p.id), ["a", "b", "c", "d"]);
+});
+
+test("Visual Order: getPhotosInVisualOrder handles variable aspect ratio masonry columns", () => {
+  // Irregular aspect ratios where column heights vary slightly:
+  // Col 1: P1 (height 210, top 100) -> P4 (top 320)
+  // Col 2: P2 (height 190, top 100) -> P5 (top 300)
+  // Col 3: P3 (height 200, top 100) -> P6 (top 310)
+  const photos = [
+    { id: "p1" }, { id: "p2" }, { id: "p3" },
+    { id: "p4" }, { id: "p5" }, { id: "p6" }
+  ];
+
+  const positions = {
+    p1: { top: 100, left: 0, width: 200, height: 210 },
+    p4: { top: 320, left: 0, width: 200, height: 180 },
+    p2: { top: 100, left: 220, width: 200, height: 190 },
+    p5: { top: 300, left: 220, width: 200, height: 220 },
+    p3: { top: 100, left: 440, width: 200, height: 200 },
+    p6: { top: 310, left: 440, width: 200, height: 190 },
+  };
+
+  const mockItems = ["p1", "p4", "p2", "p5", "p3", "p6"].map((id) => ({
+    dataset: { id },
+    getBoundingClientRect: () => positions[id],
+  }));
+
+  const mockGrid = {
+    querySelectorAll: (sel) => (sel === ".photo-item" ? mockItems : []),
+  };
+
+  const visualPhotos = getPhotosInVisualOrder(mockGrid, photos);
+  assert.deepEqual(visualPhotos.map((p) => p.id), ["p1", "p2", "p3", "p4", "p5", "p6"]);
+});
+
+test("Visual Order: getPhotosInVisualOrder handles fallbacks gracefully", () => {
+  const photos = [{ id: "1" }, { id: "2" }];
+  // Null grid
+  assert.deepEqual(getPhotosInVisualOrder(null, photos), photos);
+  // Empty photos
+  assert.deepEqual(getPhotosInVisualOrder({}, []), []);
+  // Grid with no getBoundingClientRect or zero bounds
+  const mockItemsNoBounds = ["1", "2"].map((id) => ({
+    dataset: { id },
+    getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0 }),
+  }));
+  const mockGridNoBounds = {
+    querySelectorAll: (sel) => (sel === ".photo-item" ? mockItemsNoBounds : []),
+  };
+  assert.deepEqual(getPhotosInVisualOrder(mockGridNoBounds, photos).map((p) => p.id), ["1", "2"]);
+});
+
+test("Visual Order: distance-based ordering is preserved when filtering nearby photos", () => {
+  const nearbyPhotos = [
+    { id: "close", latitude: 47.37, longitude: 8.54, categories: ["park", "nature"], createdAt: 1600000000 },
+    { id: "mid", latitude: 47.38, longitude: 8.55, categories: ["nature"], createdAt: 1700000000 },
+    { id: "far", latitude: 47.39, longitude: 8.56, categories: ["park"], createdAt: 1650000000 },
+  ];
+
+  // When customSortStrategy is false, distance order is retained even if date sorting would change it
+  const filterByTag = (photos, tag, sortStrategy) => {
+    const filtered = photos.filter((p) => (p.categories || []).includes(tag));
+    return sortStrategy === false ? filtered : sortPhotos(filtered, sortStrategy || "date-desc");
+  };
+
+  // Distance sorted: ['close', 'mid']
+  const preserved = filterByTag(nearbyPhotos, "nature", false);
+  assert.deepEqual(preserved.map((p) => p.id), ["close", "mid"]);
+
+  // If date-desc was erroneously applied, it would have been ['mid', 'close']
+  const dateSorted = filterByTag(nearbyPhotos, "nature", "date-desc");
+  assert.deepEqual(dateSorted.map((p) => p.id), ["mid", "close"]);
+});
+
+
+
+
 
