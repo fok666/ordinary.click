@@ -183,6 +183,26 @@ def _mark_ready(photo_id: str, ext: str, width: int, height: int,
         LOG.exception("failed to mark %s ready", photo_id)
 
 
+def _mark_failed(photo_id: str, error_msg: str) -> None:
+    """Record processing failure on photo item so it does not hang in ready=false indefinitely."""
+    if not _ddb or not photo_id:
+        return
+    try:
+        _ddb.update_item(
+            Key={"pk": PHOTO_PK, "sk": photo_id},
+            UpdateExpression="SET #ready = :false, #err = :err, updatedAt = :ts",
+            ExpressionAttributeNames={"#ready": "ready", "#err": "processingError"},
+            ExpressionAttributeValues={
+                ":false": False,
+                ":err": str(error_msg)[:200],
+                ":ts": int(time.time()),
+            },
+        )
+        LOG.warning("marked %s failed: %s", photo_id, error_msg)
+    except Exception:
+        LOG.exception("failed to mark %s failed in DynamoDB", photo_id)
+
+
 def _resize(img: Image.Image, max_edge: int) -> Image.Image:
     w, h = img.size
     if max(w, h) <= max_edge:
@@ -221,43 +241,47 @@ def _process_one(key: str) -> None:
 
     LOG.info("processing s3://%s/%s", BUCKET, key)
 
-    obj = _s3.get_object(Bucket=BUCKET, Key=key)
-    raw = obj["Body"].read()
+    try:
+        obj = _s3.get_object(Bucket=BUCKET, Key=key)
+        raw = obj["Body"].read()
 
-    with Image.open(io.BytesIO(raw)) as src:
-        src.load()
-        gps = _extract_gps(src)
-        oriented = ImageOps.exif_transpose(src)
-        width, height = oriented.size
-        fmt = (src.format or "JPEG").upper()
-        if fmt not in _FORMAT_MAP:
-            fmt = "JPEG"
+        with Image.open(io.BytesIO(raw)) as src:
+            src.load()
+            gps = _extract_gps(src)
+            oriented = ImageOps.exif_transpose(src)
+            width, height = oriented.size
+            fmt = (src.format or "JPEG").upper()
+            if fmt not in _FORMAT_MAP:
+                fmt = "JPEG"
 
-        display_img = _resize(oriented, DISPLAY_MAX)
-        display_bytes, display_ct = _encode(display_img, fmt)
+            display_img = _resize(oriented, DISPLAY_MAX)
+            display_bytes, display_ct = _encode(display_img, fmt)
 
-        thumb_img = _resize(oriented, THUMB_MAX)
-        thumb_bytes, thumb_ct = _encode(thumb_img, fmt)
+            thumb_img = _resize(oriented, THUMB_MAX)
+            thumb_bytes, thumb_ct = _encode(thumb_img, fmt)
 
-    _s3.put_object(
-        Bucket=BUCKET,
-        Key=f"{DISPLAY_PREFIX}{rel}",
-        Body=display_bytes,
-        ContentType=display_ct,
-        CacheControl="public, max-age=31536000, immutable",
-    )
-    _s3.put_object(
-        Bucket=BUCKET,
-        Key=f"{THUMBS_PREFIX}{rel}",
-        Body=thumb_bytes,
-        ContentType=thumb_ct,
-        CacheControl="public, max-age=31536000, immutable",
-    )
+        _s3.put_object(
+            Bucket=BUCKET,
+            Key=f"{DISPLAY_PREFIX}{rel}",
+            Body=display_bytes,
+            ContentType=display_ct,
+            CacheControl="public, max-age=31536000, immutable",
+        )
+        _s3.put_object(
+            Bucket=BUCKET,
+            Key=f"{THUMBS_PREFIX}{rel}",
+            Body=thumb_bytes,
+            ContentType=thumb_ct,
+            CacheControl="public, max-age=31536000, immutable",
+        )
 
-    LOG.info("done %s display=%dB thumb=%dB", rel, len(display_bytes), len(thumb_bytes))
+        LOG.info("done %s display=%dB thumb=%dB", rel, len(display_bytes), len(thumb_bytes))
 
-    ai_tags = _detect_labels(display_bytes)
-    _mark_ready(photo_id, ext, width, height, gps, ai_tags=ai_tags)
+        ai_tags = _detect_labels(display_bytes)
+        _mark_ready(photo_id, ext, width, height, gps, ai_tags=ai_tags)
+    except Exception as err:
+        _mark_failed(photo_id, str(err))
+        raise
 
 
 def handler(event: dict, _context) -> dict:
