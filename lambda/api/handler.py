@@ -786,13 +786,8 @@ def _rename_tag(name: str, body: dict) -> dict:
         key = {"pk": PHOTO_PK, "sk": p["sk"]}
         _ddb.update_item(
             Key=key,
-            UpdateExpression="DELETE categories :old",
-            ExpressionAttributeValues={":old": hits},
-        )
-        _ddb.update_item(
-            Key=key,
-            UpdateExpression="ADD categories :new",
-            ExpressionAttributeValues={":new": {new}},
+            UpdateExpression="DELETE categories :old ADD categories :new",
+            ExpressionAttributeValues={":old": hits, ":new": {new}},
         )
         count += 1
     return _response(200, {"renamed": count, "from": old, "to": new})
