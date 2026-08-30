@@ -9,20 +9,120 @@
 
 const STORAGE_KEY = "oc.flags";
 
-export const DEFAULT_FLAGS = {
-  blurredLightbox: true,
-  randomRoute: true,
-  latestRoute: true,
-  recentRoute: true,
-  dragDropUpload: true,
-  photoSorting: true,
-  instantSearch: true,
-  favorites: true,
-  tagCloud: true,
-  customThemes: true,
-  customLayouts: true,
-  contextHelp: true,
+/**
+ * Comprehensive schema and documentation for all application feature flags.
+ * Each entry provides functional purpose and system impact for full configurability.
+ */
+export const FLAG_DEFINITIONS = {
+  blurredLightbox: {
+    id: "blurredLightbox",
+    label: "Blurred Lightbox Backdrop",
+    category: "UI & Visuals",
+    purpose: "Underlays the photo viewer with an enlarged, high-radius blurred clone of the active photo.",
+    impact: "Provides an immersive cinematic gallery presentation. Minor GPU composition overhead on very low-end mobile devices.",
+    default: true,
+  },
+  randomRoute: {
+    id: "randomRoute",
+    label: "Random Photo Discovery",
+    category: "Discovery & Navigation",
+    purpose: "Enables the #/random route and navigation link to pick a surprise discovery photo.",
+    impact: "Adds a serendipitous discovery path. Fetches a tag photo over the network on navigation.",
+    default: true,
+  },
+  latestRoute: {
+    id: "latestRoute",
+    label: "Latest Photo Spotlight",
+    category: "Discovery & Navigation",
+    purpose: "Enables the #/latest route directly jumping to the single most recently uploaded photo.",
+    impact: "Convenient direct link for returning visitors to view the newest moment. Uses cached photo catalog.",
+    default: true,
+  },
+  recentRoute: {
+    id: "recentRoute",
+    label: "Recent Timeline Archive",
+    category: "Discovery & Navigation",
+    purpose: "Enables the #/recent route rendering uploads grouped by chronological buckets (Today, Yesterday, This Week, Month Year).",
+    impact: "Renders an organized chronological timeline. Performs client-side date clustering on the photo catalog.",
+    default: true,
+  },
+  dragDropUpload: {
+    id: "dragDropUpload",
+    label: "Drag & Drop Upload Target",
+    category: "Admin DX",
+    purpose: "Enables viewport-wide drag-and-drop file upload target when logged in as admin.",
+    impact: "Allows dragging photos directly from desktop into the gallery. Disabled for public visitors.",
+    default: true,
+  },
+  photoSorting: {
+    id: "photoSorting",
+    label: "Photo Grid Sorting Controls",
+    category: "User Experience",
+    purpose: "Enables the sorting dropdown (date, title, tag count) on gallery grids and search pages.",
+    impact: "Provides visitor flexibility in ordering photos. Instant client-side array sorting with zero network requests.",
+    default: true,
+  },
+  instantSearch: {
+    id: "instantSearch",
+    label: "Instant Catalog Search",
+    category: "Discovery & Navigation",
+    purpose: "Enables the #/search instant search route with multi-term keyword and hashtag matching.",
+    impact: "Fast client-side indexing across tags, descriptions, filenames, and places. Requires cached catalog in memory.",
+    default: true,
+  },
+  favorites: {
+    id: "favorites",
+    label: "User Favorites & Bookmarks",
+    category: "User Experience",
+    purpose: "Enables photo favoriting with heart buttons (♥) and the dedicated #/favorites archive with JSON export/import.",
+    impact: "Lets visitors save personal favorites locally in localStorage without needing an account.",
+    default: true,
+  },
+  tagCloud: {
+    id: "tagCloud",
+    label: "3D Interactive Tag Cloud",
+    category: "UI & Visuals",
+    purpose: "Renders the zero-dependency 3D rotating canvas sphere on the #/tags page.",
+    impact: "Interactive 3D tag discovery with momentum physics. 60fps HTML5 canvas rendering; turn off for static list on low-spec hardware.",
+    default: true,
+  },
+  customThemes: {
+    id: "customThemes",
+    label: "Configurable Color Themes",
+    category: "UI & Visuals",
+    purpose: "Enables the theme picker supporting Warm Light, Dark, Monochrome, Sepia, Nordic, and OLED themes.",
+    impact: "Customizable color palettes and contrast rules; saves OLED battery life. Persists choice in localStorage.",
+    default: true,
+  },
+  customLayouts: {
+    id: "customLayouts",
+    label: "Configurable Grid Layouts",
+    category: "UI & Visuals",
+    purpose: "Enables switching gallery grids between Square Grid, Masonry, Justified Rows, and Compact List.",
+    impact: "Provides dynamic layouts tailored to photo aspect ratios using pure CSS; zero JavaScript layout reflow overhead.",
+    default: true,
+  },
+  contextHelp: {
+    id: "contextHelp",
+    label: "Contextual Help & Shortcuts",
+    category: "User Experience",
+    purpose: "Enables keyboard shortcuts modal (?) and contextual navigation tips across the gallery.",
+    impact: "Assists new visitors with hashtag drill-down, keyboard navigation, and gallery tips. Zero network cost.",
+    default: true,
+  },
+  mapView: {
+    id: "mapView",
+    label: "Geolocation Map Explorer",
+    category: "Network & Offline",
+    purpose: "Enables the #/map and #/near geolocation routes and interactive map tiles.",
+    impact: "Visualizes geo-tagged photos on an interactive Leaflet map. When disabled, eliminates external CDN dependencies for offline/air-gapped operation.",
+    default: true,
+  },
 };
+
+export const DEFAULT_FLAGS = Object.fromEntries(
+  Object.entries(FLAG_DEFINITIONS).map(([k, v]) => [k, v.default])
+);
 
 function getStorage() {
   if (typeof localStorage === "undefined") return null;
@@ -163,6 +263,30 @@ export const Flags = {
       } else {
         result[name] = { enabled: this._defaults[name] ?? false, source: "default" };
       }
+    }
+    return result;
+  },
+
+  /**
+   * Return flag definitions containing explanations of purpose and impact.
+   * @returns {typeof FLAG_DEFINITIONS}
+   */
+  getDefinitions() {
+    return { ...FLAG_DEFINITIONS };
+  },
+
+  /**
+   * Return comprehensive evaluation report with functional explanations and impact metadata.
+   */
+  getDetailedReport() {
+    const statuses = this.getAll();
+    const result = {};
+    for (const [id, def] of Object.entries(FLAG_DEFINITIONS)) {
+      result[id] = {
+        ...def,
+        enabled: statuses[id]?.enabled ?? def.default,
+        source: statuses[id]?.source ?? "default",
+      };
     }
     return result;
   },
