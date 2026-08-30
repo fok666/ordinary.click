@@ -97,6 +97,36 @@ data "aws_iam_policy_document" "github_deployer" {
       aws_lambda_function.processor.arn,
     ]
   }
+
+  statement {
+    sid    = "TerraformStateS3"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketVersioning",
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = [
+      "arn:aws:s3:::${local.project}-tfstate*",
+      "arn:aws:s3:::${local.project}-tfstate*/*",
+    ]
+  }
+
+  statement {
+    sid    = "TerraformStateDynamoDB"
+    effect = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    ]
+    resources = [
+      "arn:aws:dynamodb:*:*:table/${local.project}-tflock*",
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "github_deployer" {

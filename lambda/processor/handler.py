@@ -18,8 +18,10 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import time
 from decimal import Decimal
+from typing import Any
 from urllib.parse import unquote_plus
 
 import boto3
@@ -34,6 +36,11 @@ CATALOG_TABLE = os.environ.get("CATALOG_TABLE", "")
 DISPLAY_MAX = int(os.environ.get("DISPLAY_MAX_PX", "2048"))
 THUMB_MAX = int(os.environ.get("THUMB_MAX_PX", "400"))
 JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", "85"))
+
+REKOGNITION_ENABLED = os.environ.get("REKOGNITION_ENABLED", "false").lower() in ("1", "true", "yes")
+REKOGNITION_MIN_CONFIDENCE = float(os.environ.get("REKOGNITION_MIN_CONFIDENCE", "80.0"))
+REKOGNITION_MAX_LABELS = int(os.environ.get("REKOGNITION_MAX_LABELS", "5"))
+REKOGNITION_AUTO_MERGE = os.environ.get("REKOGNITION_AUTO_MERGE", "false").lower() in ("1", "true", "yes")
 
 ORIGINALS_PREFIX = "originals/"
 DISPLAY_PREFIX = "display/"
@@ -50,7 +57,43 @@ _FORMAT_MAP = {
 }
 
 _s3 = boto3.client("s3")
+_rekognition = boto3.client("rekognition")
 _ddb = boto3.resource("dynamodb").Table(CATALOG_TABLE) if CATALOG_TABLE else None
+
+
+def _normalize_tag(label: str) -> str:
+    """Normalize a Rekognition label into a valid gallery tag."""
+    cleaned = label.strip().lower().replace(" ", "-")
+    cleaned = re.sub(r"[^\w-]", "", cleaned, flags=re.UNICODE)
+    return cleaned.strip("-_")
+
+
+def _detect_labels(image_bytes: bytes) -> list[str]:
+    """Detect labels via AWS Rekognition. Returns a list of tag strings."""
+    if not REKOGNITION_ENABLED:
+        return []
+    try:
+        resp = _rekognition.detect_labels(
+            Image={"Bytes": image_bytes},
+            MaxLabels=REKOGNITION_MAX_LABELS,
+            MinConfidence=REKOGNITION_MIN_CONFIDENCE,
+        )
+        labels = resp.get("Labels") or []
+        tags: list[str] = []
+        seen: set[str] = set()
+        for item in labels:
+            raw_name = item.get("Name", "")
+            norm = _normalize_tag(raw_name)
+            if norm and norm not in seen and len(norm) <= 64:
+                seen.add(norm)
+                tags.append(norm)
+                if len(tags) >= REKOGNITION_MAX_LABELS:
+                    break
+        LOG.info("Rekognition detected %d labels: %s", len(tags), tags)
+        return tags
+    except Exception:
+        LOG.warning("Rekognition label detection failed (non-fatal)", exc_info=True)
+        return []
 
 
 def _extract_gps(img: Image.Image) -> tuple[float, float] | None:
@@ -93,8 +136,9 @@ def _extract_gps(img: Image.Image) -> tuple[float, float] | None:
 
 
 def _mark_ready(photo_id: str, ext: str, width: int, height: int,
-                gps: tuple[float, float] | None) -> None:
-    """Mark the photo item ready and record dimensions (+ GPS if present)."""
+                gps: tuple[float, float] | None,
+                ai_tags: list[str] | None = None) -> None:
+    """Mark the photo item ready and record dimensions (+ GPS if present, + AI tags if detected)."""
     if not _ddb:
         return
     sets = [
@@ -104,7 +148,7 @@ def _mark_ready(photo_id: str, ext: str, width: int, height: int,
         "ext = if_not_exists(ext, :ext)",
         "updatedAt = :ts",
     ]
-    vals = {
+    vals: dict[str, Any] = {
         ":true": True,
         ":w": int(width),
         ":h": int(height),
@@ -116,15 +160,24 @@ def _mark_ready(photo_id: str, ext: str, width: int, height: int,
         sets.append("longitude = if_not_exists(longitude, :lon)")
         vals[":lat"] = Decimal(str(round(gps[0], 6)))
         vals[":lon"] = Decimal(str(round(gps[1], 6)))
+    if ai_tags:
+        sets.append("ai_tags = :aitags")
+        vals[":aitags"] = set(ai_tags)
+
+    update_expr = "SET " + ", ".join(sets)
+    if ai_tags and REKOGNITION_AUTO_MERGE:
+        update_expr += " ADD categories :aitags"
+
     try:
         _ddb.update_item(
             Key={"pk": PHOTO_PK, "sk": photo_id},
-            UpdateExpression="SET " + ", ".join(sets),
+            UpdateExpression=update_expr,
             ExpressionAttributeNames={"#ready": "ready"},
             ExpressionAttributeValues=vals,
         )
-        LOG.info("marked %s ready (%dx%d)%s", photo_id, width, height,
-                 " with GPS" if gps else "")
+        LOG.info("marked %s ready (%dx%d)%s%s", photo_id, width, height,
+                 " with GPS" if gps else "",
+                 f" with {len(ai_tags)} AI tags" if ai_tags else "")
     except Exception:
         LOG.exception("failed to mark %s ready", photo_id)
 
@@ -202,7 +255,8 @@ def _process_one(key: str) -> None:
 
     LOG.info("done %s display=%dB thumb=%dB", rel, len(display_bytes), len(thumb_bytes))
 
-    _mark_ready(photo_id, ext, width, height, gps)
+    ai_tags = _detect_labels(display_bytes)
+    _mark_ready(photo_id, ext, width, height, gps, ai_tags=ai_tags)
 
 
 def handler(event: dict, _context) -> dict:

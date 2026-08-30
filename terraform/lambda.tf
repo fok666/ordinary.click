@@ -221,6 +221,13 @@ data "aws_iam_policy_document" "processor_inline" {
     ]
     resources = [aws_dynamodb_table.catalog.arn]
   }
+
+  statement {
+    sid       = "RekognitionDetectLabels"
+    effect    = "Allow"
+    actions   = ["rekognition:DetectLabels"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "processor_inline" {
@@ -249,12 +256,16 @@ resource "aws_lambda_function" "processor" {
 
   environment {
     variables = {
-      IMAGE_BUCKET   = aws_s3_bucket.images.bucket
-      CATALOG_TABLE  = aws_dynamodb_table.catalog.name
-      DISPLAY_MAX_PX = "2048"
-      THUMB_MAX_PX   = "400"
-      JPEG_QUALITY   = "85"
-      LOG_LEVEL      = "INFO"
+      IMAGE_BUCKET               = aws_s3_bucket.images.bucket
+      CATALOG_TABLE              = aws_dynamodb_table.catalog.name
+      DISPLAY_MAX_PX             = "2048"
+      THUMB_MAX_PX               = "400"
+      JPEG_QUALITY               = "85"
+      REKOGNITION_ENABLED        = var.rekognition_enabled ? "true" : "false"
+      REKOGNITION_MIN_CONFIDENCE = tostring(var.rekognition_min_confidence)
+      REKOGNITION_MAX_LABELS     = tostring(var.rekognition_max_labels)
+      REKOGNITION_AUTO_MERGE     = var.rekognition_auto_merge ? "true" : "false"
+      LOG_LEVEL                  = "INFO"
     }
   }
 

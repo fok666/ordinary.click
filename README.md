@@ -54,9 +54,11 @@ Terraform; the site and API deploy from this repo.
 | --- | --- |
 | `terraform/` | All AWS infrastructure (S3, CloudFront, ACM, Route53, Lambda, DynamoDB, Cognito, IAM, GitHub OIDC). |
 | `lambda/api/` | Python 3.14 Lambda serving the catalog (tags, collections, geo) and the admin API (presigned uploads, metadata edits) from DynamoDB. |
-| `lambda/processor/` | Python 3.14 Lambda (Pillow) that resizes uploads, extracts EXIF GPS, and marks photos ready. |
+| `lambda/processor/` | Python 3.14 Lambda (Pillow, AWS Rekognition) that resizes uploads, extracts EXIF GPS, suggests AI tags, and marks photos ready. |
 | `site/` | Static front-end deployed to the site bucket. |
-| `.github/workflows/deploy.yml` | OIDC-based deploy pipeline. |
+| `docs/` | Comprehensive setup guides, including [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md). |
+| `.github/workflows/` | OIDC-based deployment (`deploy.yml`), Terraform plan/apply (`terraform.yml`), and unified CI (`ci.yml`). |
+
 
 ## Data model
 
@@ -73,6 +75,8 @@ duplicating it) and live in a single DynamoDB table together with collections:
   more tags to narrow the grid (AND), click again to widen.
 
 ## Bootstrap
+
+> For an in-depth, step-by-step walkthrough covering custom domains, Terraform remote state, Cognito setup, AI auto-tagging, and troubleshooting, see **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**.
 
 ```bash
 cd terraform
