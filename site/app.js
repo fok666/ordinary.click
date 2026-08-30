@@ -1294,15 +1294,6 @@ async function renderCover() {
         </div>
       </a>` : "";
 
-    const tagCloudHtml = Flags.isEnabled("tagCloud") && cat.tags.length ? `
-      <div class="tagcloud-wrapper">
-        <div class="tagcloud-header">
-          <h3>Interactive 3D Tag Cloud</h3>
-          <div class="tagcloud-hint">Drag with mouse or touch to rotate • Click tag to explore</div>
-        </div>
-        <canvas id="tagcloud-canvas" class="tagcloud-canvas"></canvas>
-      </div>` : "";
-
     const featured = cat.collections.slice(0, 4).map(collectionCard).join("");
 
     render(`
@@ -1313,16 +1304,21 @@ async function renderCover() {
           : `Nothing here yet. Sign in to upload your first photos.`}</p>
       </section>
       ${heroHtml}
-      ${tagCloudHtml}
+      <div id="cover-tagcloud-slot"></div>
       ${featured ? `<!--div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div-->` : ""}
     `);
 
-    if (Flags.isEnabled("tagCloud")) {
-      const canvas = document.getElementById("tagcloud-canvas");
-      if (canvas) {
-        initTagCloud(canvas, cat.tags, (tag) => {
-          location.hash = `#/t/${encodeURIComponent(tag)}`;
-        }, { maxTags: 35 });
+    if (Flags.isEnabled("tagCloud") && cat.tags.length) {
+      const slotEl = document.getElementById("cover-tagcloud-slot");
+      if (slotEl) {
+        widgets.renderSlot("cover:tagcloud", slotEl, {
+          tags: cat.tags,
+          onInit: (canvas, maxTags) => {
+            initTagCloud(canvas, cat.tags, (tag) => {
+              location.hash = `#/t/${encodeURIComponent(tag)}`;
+            }, { maxTags });
+          },
+        });
       }
     }
   } catch (err) {
@@ -1728,40 +1724,105 @@ async function renderRandom() {
 }
 
 // ---------------------------------------------------------------------------
-// Recent Photo Route (#/recent, #/latest)
+// Latest Photo Route (#/latest)
 // ---------------------------------------------------------------------------
-async function renderRecent() {
-  markActiveNav("/recent");
-  render(`<div class="page-head"><h2>Recent Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
+async function renderLatest() {
+  markActiveNav("/latest");
+  render(`<div class="page-head"><h2>Latest Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
   try {
     const photos = await getPhotos();
     const sorted = sortPhotos(photos, "date-desc");
     if (!sorted.length) {
-      render(`<div class="page-head"><h2>Recent Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
+      render(`<div class="page-head"><h2>Latest Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
       return;
     }
     const latest = sorted[0];
     const tags = photoTags(latest);
     render(`
       <div class="page-head">
-        <h2>✨ Recent Photo</h2>
+        <h2>✨ Latest Photo</h2>
         <p>${latest.description ? descHtml(latest.description) : (latest.filename || "Uploaded recently")}</p>
-        ${tags.length ? `
         <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap;">
-          <a href="#/t/${encodeURIComponent(tags[0])}" class="ghost button">Explore #${esc(tags[0])} →</a>
-        </div>` : ""}
+          ${tags.length ? `<a href="#/t/${encodeURIComponent(tags[0])}" class="ghost button">Explore #${esc(tags[0])} →</a>` : ""}
+          <a href="#/recent" class="ghost button">View timeline archive →</a>
+        </div>
       </div>
       <div class="photo-grid" style="max-width: 640px; margin: 1.5rem auto;">
         ${photoTile(latest, 0, isLoggedIn())}
       </div>
     `);
 
-    await mountPhotoGrid([latest], isLoggedIn(), renderRecent);
+    await mountPhotoGrid([latest], isLoggedIn(), renderLatest);
   } catch (err) {
-    render(`<section class="empty"><p>Couldn't load recent photo: ${esc(err.message)}</p></section>`);
+    render(`<section class="empty"><p>Couldn't load latest photo: ${esc(err.message)}</p></section>`);
   }
 }
-const renderLatest = renderRecent;
+
+// ---------------------------------------------------------------------------
+// Recent Timeline View (#/recent)
+// ---------------------------------------------------------------------------
+async function renderRecent() {
+  markActiveNav("/recent");
+  render(`<div class="page-head"><h2>Recent Moments</h2><p>Organizing timeline…</p></div><section class="loading"><p>Loading…</p></section>`);
+  try {
+    const photos = await getPhotos();
+    if (!photos.length) {
+      render(`<div class="page-head"><h2>Recent Moments</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
+      return;
+    }
+    const groups = groupPhotosByDate(photos);
+    const admin = isLoggedIn();
+    const allOrderedPhotos = groups.flatMap((g) => g.photos);
+
+    let globalIndex = 0;
+    const sectionsHtml = groups.map((g) => {
+      const groupTiles = g.photos.map((p) => photoTile(p, globalIndex++, admin)).join("");
+      return `
+        <section class="timeline-group" style="margin-bottom: 2.5rem;">
+          <div class="group-header" style="display: flex; align-items: baseline; gap: .8rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: .4rem;">
+            <h3 style="margin: 0; font-size: 1.25rem;">${esc(g.label)}</h3>
+            <span style="font-size: .8rem; color: var(--muted);">${g.photos.length} photo${g.photos.length === 1 ? "" : "s"}</span>
+          </div>
+          <div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">
+            ${groupTiles}
+          </div>
+        </section>
+      `;
+    }).join("");
+
+    render(`
+      <div class="page-head">
+        <h2>⏱️ Recent Moments</h2>
+        <p>A chronological walk through your recent memories (<strong>${photos.length}</strong> photos)</p>
+        <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap;">
+          <a href="#/latest" class="ghost button">Jump to newest photo →</a>
+          ${galleryControlsHtml(currentSort, currentLayout)}
+        </div>
+      </div>
+      <div class="timeline-container">
+        ${sectionsHtml}
+      </div>
+    `);
+
+    const controls = document.querySelector(".gallery-controls");
+    if (controls) {
+      wireGalleryControls(
+        controls,
+        () => renderRecent(),
+        (newLayout) => {
+          currentLayout = newLayout;
+          document.querySelectorAll(".photo-grid").forEach((grid) => {
+            grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+          });
+        }
+      );
+    }
+
+    await mountPhotoGrid(allOrderedPhotos, admin, renderRecent);
+  } catch (err) {
+    render(`<section class="empty"><p>Couldn't load recent moments: ${esc(err.message)}</p></section>`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // User Favorites (#/favorites)
@@ -1858,88 +1919,115 @@ async function renderSearch() {
     const hashParams = new URLSearchParams(location.hash.split("?")[1] || "");
     const initialQuery = hashParams.get("q") || "";
 
+    const popularTags = (cat.tags || []).slice(0, 8).map((t) =>
+      `<button type="button" class="chip tag-pill" data-query="#${esc(t.name)}">#${esc(t.name)} <span class="count">${t.count}</span></button>`
+    ).join("");
+
+    render(`
+      <div class="page-head">
+        <h2>Search Catalog</h2>
+        <p>Instant search across <strong>${uniquePhotos.length}</strong> photos</p>
+      </div>
+      <div class="search-container">
+        <div class="search-bar-wrap">
+          <input type="search" id="search-input" class="search-input" placeholder="Search tags, #hashtags, keywords, places… (Press /)" value="${esc(initialQuery)}" autofocus />
+          <button type="button" id="search-clear" class="search-clear-btn" title="Clear search" ${initialQuery ? "" : 'style="display:none;"'}>×</button>
+        </div>
+        <div class="search-stats" id="search-stats"></div>
+        <div class="search-suggestions" id="search-suggestions" ${initialQuery ? 'style="display:none;"' : ""}>
+          ${popularTags}
+        </div>
+      </div>
+      <div id="search-results"></div>
+    `);
+
+    const input = document.getElementById("search-input");
+    const clearBtn = document.getElementById("search-clear");
+    const statsEl = document.getElementById("search-stats");
+    const suggestionsEl = document.getElementById("search-suggestions");
+    const resultsEl = document.getElementById("search-results");
+
     function execute(q) {
       const cleanQ = (q || "").trim();
       const filtered = cleanQ ? searchPhotos(uniquePhotos, cleanQ, new Map(Object.entries(collTitles))) : [];
       const count = filtered.length;
       const sorted = sortPhotos(filtered, currentSort);
 
-      const popularTags = (cat.tags || []).slice(0, 8).map((t) =>
-        `<button type="button" class="chip tag-pill" data-query="#${esc(t.name)}">#${esc(t.name)} <span class="count">${t.count}</span></button>`
-      ).join("");
+      if (clearBtn) clearBtn.style.display = cleanQ ? "" : "none";
+      if (suggestionsEl) suggestionsEl.style.display = cleanQ ? "none" : "";
 
-      const resultsHtml = cleanQ
-        ? (count
-            ? `<div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">${sorted.map((p, i) => photoTile(p, i, admin)).join("")}</div>`
-            : `<section class="empty"><p>No photos matched “${esc(cleanQ)}”. Try other keywords or tags.</p></section>`)
-        : `<div style="text-align: center; color: var(--muted); margin: 3rem 0;">
-             <p>Type to search across tags, #hashtags, filenames, descriptions, and places.</p>
-           </div>`;
-
-      render(`
-        <div class="page-head">
-          <h2>Search Catalog</h2>
-          <p>Instant search across <strong>${uniquePhotos.length}</strong> photos</p>
-        </div>
-        <div class="search-container">
-          <div class="search-bar-wrap">
-            <input type="search" id="search-input" class="search-input" placeholder="Search tags, #hashtags, keywords, places… (Press /)" value="${esc(cleanQ)}" autofocus />
-            ${cleanQ ? `<button type="button" id="search-clear" class="search-clear-btn" title="Clear search">×</button>` : ""}
-          </div>
-          <div class="search-stats">
-            <span>${cleanQ ? `Found <strong>${count}</strong> match${count === 1 ? "" : "es"}` : "Popular tags to explore:"}</span>
-            ${cleanQ ? galleryControlsHtml(currentSort, currentLayout) : ""}
-          </div>
-          ${!cleanQ ? `<div class="search-suggestions">${popularTags}</div>` : ""}
-        </div>
-        <div id="search-results">${resultsHtml}</div>
-      `);
-
-      const input = document.getElementById("search-input");
-      if (input) {
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
-        let debounceTimer;
-        input.addEventListener("input", (e) => {
-          clearTimeout(debounceTimer);
-          debounceTimer = setTimeout(() => {
-            const nextQ = e.target.value;
-            history.replaceState(null, "", `#/search${nextQ.trim() ? `?q=${encodeURIComponent(nextQ.trim())}` : ""}`);
-            execute(nextQ);
-          }, 100);
-        });
+      if (statsEl) {
+        statsEl.innerHTML = `
+          <span>${cleanQ ? `Found <strong>${count}</strong> match${count === 1 ? "" : "es"}` : "Popular tags to explore:"}</span>
+          ${cleanQ ? galleryControlsHtml(currentSort, currentLayout) : ""}
+        `;
+        const controls = statsEl.querySelector(".gallery-controls");
+        if (controls) {
+          wireGalleryControls(
+            controls,
+            (newSort) => { currentSort = newSort; execute(input?.value || cleanQ); },
+            (newLayout) => {
+              currentLayout = newLayout;
+              const grid = resultsEl?.querySelector(".photo-grid");
+              if (grid) grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+            }
+          );
+        }
       }
 
-      document.getElementById("search-clear")?.addEventListener("click", () => {
-        history.replaceState(null, "", "#/search");
-        execute("");
-      });
-
-      document.querySelectorAll(".tag-pill").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const qStr = btn.dataset.query;
-          history.replaceState(null, "", `#/search?q=${encodeURIComponent(qStr)}`);
-          execute(qStr);
-        });
-      });
-
-      const controls = document.querySelector(".gallery-controls");
-      if (controls) {
-        wireGalleryControls(
-          controls,
-          (newSort) => { currentSort = newSort; execute(cleanQ); },
-          (newLayout) => {
-            currentLayout = newLayout;
-            const grid = document.querySelector(".photo-grid");
-            if (grid) grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
-          }
-        );
-      }
-
-      if (count) {
-        mountPhotoGrid(sorted, admin, () => execute(cleanQ));
+      if (resultsEl) {
+        if (!cleanQ) {
+          resultsEl.innerHTML = `
+            <div style="text-align: center; color: var(--muted); margin: 3rem 0;">
+              <p>Type to search across tags, #hashtags, filenames, descriptions, and places.</p>
+            </div>
+          `;
+        } else if (!count) {
+          resultsEl.innerHTML = `<section class="empty"><p>No photos matched “${esc(cleanQ)}”. Try other keywords or tags.</p></section>`;
+        } else {
+          resultsEl.innerHTML = `
+            <div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">
+              ${sorted.map((p, i) => photoTile(p, i, admin)).join("")}
+            </div>
+          `;
+          mountPhotoGrid(sorted, admin, () => execute(input?.value || cleanQ));
+        }
       }
     }
+
+    if (input) {
+      input.focus();
+      let debounceTimer;
+      input.addEventListener("input", (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const nextQ = e.target.value;
+          history.replaceState(null, "", `#/search${nextQ.trim() ? `?q=${encodeURIComponent(nextQ.trim())}` : ""}`);
+          execute(nextQ);
+        }, 80);
+      });
+    }
+
+    clearBtn?.addEventListener("click", () => {
+      if (input) {
+        input.value = "";
+        input.focus();
+      }
+      history.replaceState(null, "", "#/search");
+      execute("");
+    });
+
+    suggestionsEl?.querySelectorAll(".tag-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const qStr = btn.dataset.query;
+        if (input) {
+          input.value = qStr;
+          input.focus();
+        }
+        history.replaceState(null, "", `#/search?q=${encodeURIComponent(qStr)}`);
+        execute(qStr);
+      });
+    });
 
     execute(initialQuery);
   } catch (err) {
