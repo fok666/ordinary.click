@@ -123,6 +123,9 @@ export function searchPhotos(photos, query, collectionTitles = new Map()) {
   return results.sort((a, b) => b.score - a.score).map((r) => r.photo);
 }
 
+const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
 /**
  * Highlight matched search words inside text.
  * Escapes HTML first to protect against XSS, then highlights tokens.
@@ -133,12 +136,15 @@ export function searchPhotos(photos, query, collectionTitles = new Map()) {
  */
 export function highlightMatches(text, query) {
   if (!text) return "";
-  const tokens = tokenizeQuery(query).map((t) => t.replace(/^#/, "")).filter((t) => t.length > 1);
-  if (!tokens.length) return String(text);
+  const safeText = escapeHtml(text);
+  const tokens = tokenizeQuery(query)
+    .map((t) => t.replace(/^#/, ""))
+    .filter((t) => t.length > 1);
+  if (!tokens.length) return safeText;
 
   // Escape special regex characters in search tokens
   const escaped = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const regex = new RegExp(`(${escaped.join("|")})`, "gi");
 
-  return text.replace(regex, `<mark class="search-highlight">$1</mark>`);
+  return safeText.replace(regex, `<mark class="search-highlight">$1</mark>`);
 }
