@@ -154,6 +154,68 @@ class TestMarkReady(unittest.TestCase):
         self.assertEqual(vals[":lat"], Decimal("47.376912"))
         self.assertEqual(vals[":lon"], Decimal("8.541746"))
 
+    @patch.object(handler, "_ddb")
+    def test_mark_ready_with_ai_tags(self, mock_ddb):
+        handler._mark_ready("test_id_3", "jpg", 1200, 800, None, ai_tags=["mountain", "lake"])
+        mock_ddb.update_item.assert_called_once()
+        call_kwargs = mock_ddb.update_item.call_args.kwargs
+        self.assertIn("ai_tags = :aitags", call_kwargs["UpdateExpression"])
+        self.assertEqual(call_kwargs["ExpressionAttributeValues"][":aitags"], {"mountain", "lake"})
+        self.assertNotIn("ADD categories", call_kwargs["UpdateExpression"])
+
+    @patch.object(handler, "REKOGNITION_AUTO_MERGE", True)
+    @patch.object(handler, "_ddb")
+    def test_mark_ready_with_ai_tags_auto_merge(self, mock_ddb):
+        handler._mark_ready("test_id_4", "jpg", 1200, 800, None, ai_tags=["nature", "forest"])
+        mock_ddb.update_item.assert_called_once()
+        call_kwargs = mock_ddb.update_item.call_args.kwargs
+        self.assertIn("ai_tags = :aitags", call_kwargs["UpdateExpression"])
+        self.assertIn("ADD categories :aitags", call_kwargs["UpdateExpression"])
+
+
+class TestRekognition(unittest.TestCase):
+    """Test AWS Rekognition auto-tagging functions."""
+
+    def test_normalize_tag(self):
+        self.assertEqual(handler._normalize_tag("Mountain Peak"), "mountain-peak")
+        self.assertEqual(handler._normalize_tag("Water_Sport!"), "water_sport")
+        self.assertEqual(handler._normalize_tag("  Tree-Branch  "), "tree-branch")
+        self.assertEqual(handler._normalize_tag("123 Sunset"), "123-sunset")
+
+    def test_detect_labels_when_disabled(self):
+        with patch.object(handler, "REKOGNITION_ENABLED", False):
+            with patch.object(handler, "_rekognition") as mock_rek:
+                result = handler._detect_labels(b"fake-bytes")
+                self.assertEqual(result, [])
+                mock_rek.detect_labels.assert_not_called()
+
+    def test_detect_labels_success(self):
+        mock_resp = {
+            "Labels": [
+                {"Name": "Landscape", "Confidence": 98.5},
+                {"Name": "Mountain Peak", "Confidence": 94.2},
+                {"Name": "Outdoors", "Confidence": 88.0},
+            ]
+        }
+        with patch.object(handler, "REKOGNITION_ENABLED", True):
+            with patch.object(handler, "REKOGNITION_MAX_LABELS", 2):
+                with patch.object(handler, "_rekognition") as mock_rek:
+                    mock_rek.detect_labels.return_value = mock_resp
+                    result = handler._detect_labels(b"fake-bytes")
+                    mock_rek.detect_labels.assert_called_once_with(
+                        Image={"Bytes": b"fake-bytes"},
+                        MaxLabels=2,
+                        MinConfidence=handler.REKOGNITION_MIN_CONFIDENCE,
+                    )
+                    self.assertEqual(result, ["landscape", "mountain-peak"])
+
+    def test_detect_labels_exception_handled_gracefully(self):
+        with patch.object(handler, "REKOGNITION_ENABLED", True):
+            with patch.object(handler, "_rekognition") as mock_rek:
+                mock_rek.detect_labels.side_effect = Exception("AWS API error")
+                result = handler._detect_labels(b"fake-bytes")
+                self.assertEqual(result, [])
+
 
 class TestProcessOneAndHandler(unittest.TestCase):
     """Test full processing pipeline with mocked S3 and DynamoDB."""

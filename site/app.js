@@ -520,7 +520,7 @@ function createChipsInput(container, initial = [], suggestions = []) {
   });
   input.addEventListener("blur", () => { if (input.value.trim()) { add(input.value); input.value = ""; } });
 
-  return { getTags: () => [...chips] };
+  return { getTags: () => [...chips], addTag: (raw) => add(raw) };
 }
 
 function collectionOptions(collections, selectedId) {
@@ -673,7 +673,49 @@ async function openMetaModal(photo, onSaved) {
   const knownTags = (await safeTagNames());
   metaCollection.innerHTML = collectionOptions(collections, photo.collectionId || "");
   // Chips edit the *stored* set only — hashtag tags are edited via the description.
-  metaChips = createChipsInput(document.getElementById("meta-categories"), photo.categories || [], knownTags);
+  let currentAiTags = [...(photo.ai_tags || [])];
+  const aiSection = document.getElementById("meta-ai-tags-section");
+  const aiList = document.getElementById("meta-ai-tags-list");
+  function renderAiSection() {
+    if (!aiSection || !aiList) return;
+    if (!currentAiTags.length) {
+      aiSection.hidden = true;
+      aiList.innerHTML = "";
+      return;
+    }
+    aiSection.hidden = false;
+    aiList.innerHTML = currentAiTags.map((tag) =>
+      `<button type="button" class="ai-tag-chip" data-tag="${esc(tag)}" title="Add ${esc(tag)} to tags">` +
+      `<span class="ai-tag-add-icon">＋</span> ${esc(tag)}</button>`
+    ).join("");
+    aiList.querySelectorAll(".ai-tag-chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tag = btn.dataset.tag;
+        if (metaChips) metaChips.addTag(tag);
+        currentAiTags = currentAiTags.filter((t) => t !== tag);
+        renderAiSection();
+      });
+    });
+  }
+  renderAiSection();
+
+  const addAllBtn = document.getElementById("meta-ai-add-all");
+  if (addAllBtn) {
+    addAllBtn.onclick = () => {
+      currentAiTags.forEach((t) => { if (metaChips) metaChips.addTag(t); });
+      currentAiTags = [];
+      renderAiSection();
+    };
+  }
+  const dismissBtn = document.getElementById("meta-ai-dismiss");
+  if (dismissBtn) {
+    dismissBtn.onclick = () => {
+      currentAiTags = [];
+      renderAiSection();
+    };
+  }
+
+  metaEditCallback = { photo, onSaved, getAiTags: () => currentAiTags };
 
   metaModal.hidden = false;
   if (metaPicker) metaPicker.destroy();
@@ -693,12 +735,15 @@ metaModal.addEventListener("click", (e) => { if (e.target === metaModal) closeMe
 metaForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!metaEditCallback) return;
-  const { photo, onSaved } = metaEditCallback;
+  const { photo, onSaved, getAiTags } = metaEditCallback;
   const body = {
     description: metaDesc.value,
     categories: metaChips ? metaChips.getTags() : (photo.categories || []), // wire field name is legacy
     collectionId: metaCollection.value || null,
   };
+  if (getAiTags) {
+    body.ai_tags = getAiTags();
+  }
   if (metaLat.value !== "" && metaLng.value !== "") {
     body.latitude = parseFloat(metaLat.value);
     body.longitude = parseFloat(metaLng.value);

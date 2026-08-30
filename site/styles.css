@@ -542,6 +542,70 @@ input[type="file"] { color: var(--muted); }
 }
 .chip.add:hover { border-style: solid; border-color: var(--accent); color: var(--accent); }
 
+/* --- AI Tags Suggestions -------------------------------------------------- */
+.ai-tags-field {
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--accent);
+}
+.ai-tags-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+.ai-tags-header .field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.ai-tags-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.ghost-btn.sm {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+.ghost-btn.sm:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.ai-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.ai-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  color: var(--fg);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ai-tag-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.ai-tag-chip .ai-tag-add-icon {
+  color: var(--accent);
+  font-weight: bold;
+}
+
 /* --- Lightbox ------------------------------------------------------------- */
 .lightbox {
   position: fixed; inset: 0; z-index: 100;

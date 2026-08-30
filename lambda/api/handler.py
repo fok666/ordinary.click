@@ -285,6 +285,8 @@ def _photo_public(item: dict) -> dict:
         out["createdAt"] = int(item["createdAt"])
     if "updatedAt" in item:
         out["updatedAt"] = int(item["updatedAt"])
+    if "ai_tags" in item and item["ai_tags"]:
+        out["ai_tags"] = sorted(item["ai_tags"])
     return out
 
 
@@ -559,6 +561,27 @@ def _update_photo(photo_id: str, body: dict) -> dict:
             vals[":cats"] = set(cats)
         else:
             removes.append("categories")
+    elif body.get("approveAiTags") and item.get("ai_tags"):
+        existing_cats = set(item.get("categories") or set())
+        ai_set = set(item.get("ai_tags") or set())
+        merged = existing_cats | ai_set
+        clean_merged = _clean_tags(list(merged))
+        if clean_merged:
+            sets.append("categories = :cats")
+            vals[":cats"] = set(clean_merged)
+        removes.append("ai_tags")
+
+    if "ai_tags" in body and "approveAiTags" not in body:
+        raw_ai = body.get("ai_tags")
+        if isinstance(raw_ai, list):
+            clean_ai = _clean_tags(raw_ai)
+            if clean_ai:
+                sets.append("ai_tags = :aitags")
+                vals[":aitags"] = set(clean_ai)
+            else:
+                removes.append("ai_tags")
+        elif raw_ai is None:
+            removes.append("ai_tags")
 
     if "description" in body:
         desc = _clean_description(body.get("description"))

@@ -55,6 +55,7 @@ MOCK_PHOTOS = [
         "thumb": "/thumbs/mock_photo_1.jpg",
         "categories": ["nature", "forest"],
         "tags": ["nature", "forest", "sunlight"],
+        "ai_tags": ["conifer", "pine", "wilderness"],
         "description": "Golden hour through the tall pine trees. #sunlight",
         "ready": True,
         "width": 1600,
@@ -72,6 +73,7 @@ MOCK_PHOTOS = [
         "thumb": "/thumbs/mock_photo_2.jpg",
         "categories": ["architecture", "street"],
         "tags": ["architecture", "street", "brutalist"],
+        "ai_tags": ["monochrome", "urban", "facade"],
         "description": "Geometric facade on a cloudy afternoon. #brutalist",
         "ready": True,
         "width": 1200,
@@ -374,6 +376,7 @@ class GalleryDevHandler(http.server.SimpleHTTPRequestHandler):
                 "thumb": f"/thumbs/{new_id}.{ext}",
                 "categories": body.get("categories", []),
                 "tags": body.get("categories", []),
+                "ai_tags": ["photo", "outdoor", "scenery"],
                 "description": body.get("description", "Uploaded in dev mode"),
                 "ready": True,
                 "width": 1200,
@@ -411,6 +414,19 @@ class GalleryDevHandler(http.server.SimpleHTTPRequestHandler):
             photo = next((p for p in MOCK_PHOTOS if p["id"] == photo_id), None)
             if not photo:
                 return self._send_json({"error": "Photo not found"}, 404)
+            if "approveAiTags" in body and body["approveAiTags"]:
+                ai = photo.get("ai_tags") or []
+                existing = set(photo.get("categories") or [])
+                existing.update(ai)
+                photo["categories"] = sorted(existing)
+                photo["tags"] = sorted(existing)
+                photo.pop("ai_tags", None)
+            elif "ai_tags" in body:
+                raw_ai = body["ai_tags"]
+                if raw_ai:
+                    photo["ai_tags"] = list(raw_ai)
+                else:
+                    photo.pop("ai_tags", None)
             if "description" in body:
                 photo["description"] = body["description"]
             if "categories" in body:

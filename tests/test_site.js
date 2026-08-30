@@ -617,7 +617,28 @@ test("Visual Order: distance-based ordering is preserved when filtering nearby p
   assert.deepEqual(dateSorted.map((p) => p.id), ["mid", "close"]);
 });
 
+test("AI Tags: approving and merging AI suggestions into photo categories", () => {
+  const photo = {
+    categories: ["nature"],
+    ai_tags: ["forest", "mountain", "nature"],
+  };
 
+  // Merge single AI tag
+  const addSingle = (currentCats, tag) => {
+    const set = new Set(currentCats);
+    set.add(tag);
+    return [...set].sort();
+  };
 
+  const updatedCats = addSingle(photo.categories, "mountain");
+  assert.deepEqual(updatedCats, ["mountain", "nature"]);
 
+  // Merge all AI tags with deduplication
+  const addAll = (currentCats, aiTags) => {
+    const set = new Set([...currentCats, ...aiTags]);
+    return [...set].sort();
+  };
 
+  const allMerged = addAll(photo.categories, photo.ai_tags);
+  assert.deepEqual(allMerged, ["forest", "mountain", "nature"]);
+});

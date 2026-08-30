@@ -106,6 +106,32 @@ def demo():
     assert resp["statusCode"] == 200, resp
     assert "photos" in resp["body"], resp
 
+    # _photo_public includes ai_tags if present
+    pub_with_ai = handler._photo_public({
+        "sk": "p2",
+        "ready": True,
+        "ai_tags": {"nature", "sunset"},
+    })
+    assert pub_with_ai.get("ai_tags") == ["nature", "sunset"], pub_with_ai
+
+    # Test _update_photo with approveAiTags
+    mock_ddb = MagicMock()
+    handler._ddb = mock_ddb
+    mock_item = {"pk": "PHOTO", "sk": HASH, "categories": {"nature"}, "ai_tags": {"forest", "mountain"}}
+    mock_ddb.get_item.return_value = {"Item": mock_item}
+    mock_ddb.update_item.return_value = {
+        "Attributes": {
+            "sk": HASH,
+            "ready": True,
+            "categories": {"nature", "forest", "mountain"},
+        }
+    }
+    res = handler._update_photo(HASH, {"approveAiTags": True})
+    assert res["statusCode"] == 200, res
+    call_args = mock_ddb.update_item.call_args.kwargs
+    assert "categories = :cats" in call_args["UpdateExpression"]
+    assert "REMOVE ai_tags" in call_args["UpdateExpression"]
+
     print("ok")
 
 

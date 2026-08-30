@@ -63,3 +63,28 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "rekognition_enabled" {
+  description = "Enable AWS Rekognition auto-tagging for newly uploaded images."
+  type        = bool
+  default     = false
+}
+
+variable "rekognition_min_confidence" {
+  description = "Minimum confidence threshold (0-100) for Rekognition label detection."
+  type        = number
+  default     = 80.0
+}
+
+variable "rekognition_max_labels" {
+  description = "Maximum number of Rekognition labels to extract per photo."
+  type        = number
+  default     = 5
+}
+
+variable "rekognition_auto_merge" {
+  description = "If true, automatically merges Rekognition labels into stored categories."
+  type        = bool
+  default     = false
+}
+
