@@ -308,7 +308,7 @@ widgets.register("tagcloud", {
     container.innerHTML = `
       <div class="tagcloud-wrapper">
         <div class="tagcloud-header">
-          <h3>Interactive 3D Tag Cloud</h3>
+          <h3>Tag Cloud</h3>
           <div class="tagcloud-hint">Drag with mouse or touch to rotate • Click tag to explore</div>
         </div>
         <canvas id="tagcloud-canvas" class="tagcloud-canvas"></canvas>
