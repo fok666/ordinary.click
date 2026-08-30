@@ -17,6 +17,8 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("IMAGE_BUCKET", "test-image-bucket")
 os.environ.setdefault("CATALOG_TABLE", "test-catalog-table")
 os.environ.setdefault("LOG_LEVEL", "ERROR")
+os.environ.setdefault("AWS_DEFAULT_REGION", "eu-west-1")
+os.environ.setdefault("AWS_REGION", "eu-west-1")
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "lambda", "processor"))

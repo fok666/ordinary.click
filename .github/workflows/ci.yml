@@ -14,6 +14,8 @@ jobs:
   test-and-lint:
     name: Test & Lint Suite
     runs-on: ubuntu-latest
+    env:
+      AWS_DEFAULT_REGION: eu-west-1
 
     steps:
       - name: Checkout repository

@@ -56,9 +56,10 @@ _FORMAT_MAP = {
     "GIF":  ("GIF",  "image/gif",  {}),
 }
 
-_s3 = boto3.client("s3")
-_rekognition = boto3.client("rekognition")
-_ddb = boto3.resource("dynamodb").Table(CATALOG_TABLE) if CATALOG_TABLE else None
+_region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "eu-west-1"
+_s3 = boto3.client("s3", region_name=_region)
+_rekognition = boto3.client("rekognition", region_name=_region)
+_ddb = boto3.resource("dynamodb", region_name=_region).Table(CATALOG_TABLE) if CATALOG_TABLE else None
 
 
 def _normalize_tag(label: str) -> str:

@@ -5,6 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-eu-west-1}"
+
 echo "=== 1. API Handler Tests (lambda/api) ==="
 python3 tests/test_api_handler.py
 
