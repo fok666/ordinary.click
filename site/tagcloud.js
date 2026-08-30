@@ -86,6 +86,55 @@ export function filterCloudTags(tags, maxTags = 35) {
 }
 
 /**
+ * Resolve RGB color values for active theme tokens.
+ * Supports all 6 built-in themes (light, dark, monochrome, sepia, nordic, oled).
+ * @returns {{ baseColor: string, accentColor: string, isDark: boolean }}
+ */
+export function getThemeColors() {
+  if (typeof window === "undefined" || typeof document === "undefined" || !document.documentElement) {
+    return { baseColor: "32, 29, 26", accentColor: "47, 111, 106", isDark: false };
+  }
+
+  const theme = document.documentElement.dataset.theme || "";
+  const darkThemes = new Set(["dark", "monochrome", "nordic", "oled"]);
+  const isDark = darkThemes.has(theme) ||
+    (!theme && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+
+  try {
+    const cs = getComputedStyle(document.documentElement);
+    const fg = cs.getPropertyValue("--fg")?.trim();
+    const accent = cs.getPropertyValue("--accent")?.trim();
+
+    const hexToRgb = (hex) => {
+      if (!hex || typeof hex !== "string") return null;
+      let c = hex.replace(/^#/, "");
+      if (c.length === 3) c = c.split("").map((x) => x + x).join("");
+      if (c.length === 6) {
+        const num = parseInt(c, 16);
+        if (Number.isNaN(num)) return null;
+        return `${(num >> 16) & 255}, ${(num >> 8) & 255}, ${num & 255}`;
+      }
+      return null;
+    };
+
+    const fgRgb = hexToRgb(fg);
+    const accentRgb = hexToRgb(accent);
+
+    return {
+      baseColor: fgRgb || (isDark ? "236, 231, 223" : "32, 29, 26"),
+      accentColor: accentRgb || (isDark ? "100, 182, 172" : "47, 111, 106"),
+      isDark,
+    };
+  } catch {
+    return {
+      baseColor: isDark ? "236, 231, 223" : "32, 29, 26",
+      accentColor: isDark ? "100, 182, 172" : "47, 111, 106",
+      isDark,
+    };
+  }
+}
+
+/**
  * Initialize and render the interactive 3D Tag Cloud on a canvas element.
  * @param {HTMLCanvasElement} canvas
  * @param {Array<{ name: string, count: number }>} tags
@@ -240,11 +289,8 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
       points[i].z = rotated.z;
     }
 
-    // Determine current theme accent & text color
-    const isDark = document.documentElement.dataset.theme === "dark" ||
-      (!document.documentElement.dataset.theme && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
-    const baseColor = isDark ? "236, 231, 223" : "32, 29, 26";
-    const accentColor = isDark ? "100, 182, 172" : "47, 111, 106";
+    // Determine current theme accent & text color dynamically from active theme tokens
+    const { baseColor, accentColor, isDark } = getThemeColors();
 
     // Project and sort by depth (z-index)
     projectedPoints = points.map((p) => {
