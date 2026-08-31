@@ -24,7 +24,7 @@ import { Flags } from "./flags.js";
 import { events, themes, layouts, widgets, options } from "./plugins.js";
 import { initTagCloud } from "./tagcloud.js";
 import { Favorites } from "./favorites.js";
-import { sortPhotos, groupPhotosByDate, getPhotosInVisualOrder } from "./sorter.js";
+import { sortPhotos, filterPhotosByTimeframe, groupPhotosByDate, getPhotosInVisualOrder } from "./sorter.js";
 import { tokenizeQuery, searchPhotos, highlightMatches } from "./search.js";
 
 const app = document.getElementById("app");
@@ -67,12 +67,21 @@ function currentTheme() {
 }
 
 function applyThemeButton() {
-  const btn = document.getElementById("theme-toggle");
-  if (!btn) return;
   const curr = currentTheme();
   const themeObj = themes.get(curr);
-  btn.textContent = THEME_ICONS[curr] || "🎨";
-  btn.title = `Theme: ${themeObj?.name || curr} (Click to change)`;
+  const icon = THEME_ICONS[curr] || "🎨";
+  const label = themeObj?.name || curr;
+
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    btn.textContent = icon;
+    btn.title = `Theme: ${label} (Click to change)`;
+  }
+
+  const menuIcon = document.getElementById("menu-theme-icon");
+  const menuLabel = document.getElementById("menu-theme-label");
+  if (menuIcon) menuIcon.textContent = icon;
+  if (menuLabel) menuLabel.textContent = `Theme: ${label}`;
 }
 
 function populateThemeModal() {
@@ -109,7 +118,7 @@ function openThemeModal() {
 function closeThemeModal() {
   const modal = document.getElementById("theme-modal");
   if (modal) modal.hidden = true;
-  document.getElementById("theme-toggle")?.focus();
+  document.getElementById("header-menu-btn")?.focus();
 }
 
 function wireThemeModal() {
@@ -136,6 +145,52 @@ function toggleTheme() {
     themes.apply(next);
     applyThemeButton();
   }
+}
+
+function wireHeaderMenu() {
+  const menuBtn = document.getElementById("header-menu-btn");
+  const dropdown = document.getElementById("header-menu-dropdown");
+  const themeBtn = document.getElementById("menu-theme-btn");
+  const helpBtn = document.getElementById("menu-help-btn");
+
+  if (!menuBtn || !dropdown) return;
+
+  function toggleMenu(force) {
+    const isHidden = typeof force === "boolean" ? !force : !dropdown.hidden;
+    dropdown.hidden = isHidden;
+    menuBtn.setAttribute("aria-expanded", String(!isHidden));
+  }
+
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMenu();
+  });
+
+  themeBtn?.addEventListener("click", () => {
+    toggleMenu(false);
+    toggleTheme();
+  });
+
+  helpBtn?.addEventListener("click", () => {
+    toggleMenu(false);
+    const helpModal = document.getElementById("help-modal");
+    if (helpModal) helpModal.hidden = false;
+  });
+
+  // Close on outside click
+  document.addEventListener("click", (e) => {
+    if (!dropdown.hidden && !dropdown.contains(e.target) && e.target !== menuBtn && !menuBtn.contains(e.target)) {
+      toggleMenu(false);
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !dropdown.hidden) {
+      toggleMenu(false);
+      menuBtn.focus();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1327,23 +1382,8 @@ async function renderCover() {
           : `Nothing here yet. Sign in to upload your first photos.`}</p>
       </section>
       ${heroHtml}
-      <div id="cover-tagcloud-slot"></div>
       ${featured ? `<!--div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div-->` : ""}
     `);
-
-    if (Flags.isEnabled("tagCloud") && cat.tags.length) {
-      const slotEl = document.getElementById("cover-tagcloud-slot");
-      if (slotEl) {
-        widgets.renderSlot("cover:tagcloud", slotEl, {
-          tags: cat.tags,
-          onInit: (canvas, maxTags) => {
-            initTagCloud(canvas, cat.tags, (tag) => {
-              location.hash = `#/t/${encodeURIComponent(tag)}`;
-            }, { maxTags });
-          },
-        });
-      }
-    }
   } catch (err) {
     render(`<section class="empty"><p>Couldn't load: ${esc(err.message)}</p></section>`);
   }
@@ -1747,38 +1787,167 @@ async function renderRandom() {
 }
 
 // ---------------------------------------------------------------------------
-// Recent Photo Route (#/recent, #/latest)
-// Shows only the single last picture by timestamp to prevent thousands of requests.
+// Tag Cloud Dedicated Tab View (#/cloud)
+// Full fly-by 3D canvas with zoom, dolly, pan, and HUD navigation
 // ---------------------------------------------------------------------------
-async function renderRecent() {
-  markActiveNav("/recent");
-  render(`<div class="page-head"><h2>Recent Photo</h2><p>Locating newest moment…</p></div><section class="loading"><p>Loading…</p></section>`);
+let activeCloudCleanup = null;
+async function renderTagCloud() {
+  markActiveNav("/cloud");
+  if (activeCloudCleanup) {
+    activeCloudCleanup();
+    activeCloudCleanup = null;
+  }
+  render(`
+    <div class="page-head">
+      <h2>3D Tag Cloud</h2>
+      <p>Fly-by interactive tag discovery across the archive</p>
+    </div>
+    <section class="loading"><p>Generating 3D tag space…</p></section>
+  `);
   try {
-    const photos = await getPhotos();
-    const sorted = sortPhotos(photos, "date-desc");
-    if (!sorted.length) {
-      render(`<div class="page-head"><h2>Recent Photo</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
+    const cat = await getCatalog();
+    const tags = cat.tags || [];
+    if (!tags.length) {
+      render(`
+        <div class="page-head">
+          <h2>3D Tag Cloud</h2>
+        </div>
+        <section class="empty"><p>No tags available yet.</p></section>
+      `);
       return;
     }
-    const latest = sorted[0];
-    const tags = photoTags(latest);
+
     render(`
       <div class="page-head">
-        <h2>✨ Recent Photo</h2>
-        <p>${latest.description ? descHtml(latest.description) : (latest.filename || "Uploaded recently")}</p>
-        ${tags.length ? `
-        <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap;">
-          <a href="#/t/${encodeURIComponent(tags[0])}" class="ghost button">Explore #${esc(tags[0])} →</a>
-        </div>` : ""}
+        <h2>3D Tag Cloud</h2>
+        <p>Explore <strong>${tags.length}</strong> tags • Drag to rotate, scroll/pinch to fly through, click tag to view</p>
       </div>
-      <div class="photo-grid" style="max-width: 640px; margin: 1.5rem auto;">
-        ${photoTile(latest, 0, isLoggedIn())}
+      <div class="tagcloud-page-view">
+        <canvas id="tagcloud-fullscreen-canvas" class="tagcloud-canvas-fullscreen"></canvas>
+        <div class="tagcloud-hud">
+          <button type="button" class="tagcloud-hud-btn" id="cloud-zoom-in" title="Zoom In (Fly forward)">＋</button>
+          <button type="button" class="tagcloud-hud-btn" id="cloud-zoom-out" title="Zoom Out (Fly backward)">−</button>
+          <button type="button" class="tagcloud-hud-btn" id="cloud-reset" title="Reset Camera">↺</button>
+          <span class="tagcloud-hud-hint">Scroll to fly through • Drag to orbit</span>
+        </div>
       </div>
     `);
 
-    await mountPhotoGrid([latest], isLoggedIn(), renderRecent);
+    const canvas = document.getElementById("tagcloud-fullscreen-canvas");
+    if (canvas) {
+      const maxTags = options.getValue("tagCloudMaxTags") || 60;
+      activeCloudCleanup = initTagCloud(
+        canvas,
+        tags,
+        (tagName) => {
+          location.hash = `#/t/${encodeURIComponent(tagName)}`;
+        },
+        { maxTags: Math.max(maxTags, 50) }
+      );
+
+      document.getElementById("cloud-zoom-in")?.addEventListener("click", () => activeCloudCleanup?.zoomIn?.());
+      document.getElementById("cloud-zoom-out")?.addEventListener("click", () => activeCloudCleanup?.zoomOut?.());
+      document.getElementById("cloud-reset")?.addEventListener("click", () => activeCloudCleanup?.reset?.());
+    }
   } catch (err) {
-    render(`<section class="empty"><p>Couldn't load recent photo: ${esc(err.message)}</p></section>`);
+    render(`<section class="empty"><p>Couldn't load tag cloud: ${esc(err.message)}</p></section>`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recent Photos Route (#/recent) with Day/Week/Month selector
+// ---------------------------------------------------------------------------
+let currentRecentTimeframe = "week"; // 'day' | 'week' | 'month'
+
+async function renderRecent() {
+  markActiveNav("/recent");
+  render(`<div class="page-head"><h2>Recent Moments</h2><p>Locating recent photos…</p></div><section class="loading"><p>Loading…</p></section>`);
+  try {
+    const photos = await getPhotos();
+    const admin = isLoggedIn();
+
+    if (!photos.length) {
+      render(`<div class="page-head"><h2>Recent Moments</h2></div><section class="empty"><p>No photos found in catalog.</p></section>`);
+      return;
+    }
+
+    const filtered = filterPhotosByTimeframe(photos, currentRecentTimeframe);
+    const sorted = sortPhotos(filtered, currentSort);
+
+    const timeframeLabels = {
+      day: "Past 24 Hours",
+      week: "Past 7 Days",
+      month: "Past 30 Days",
+    };
+
+    render(`
+      <div class="page-head">
+        <h2>✨ Recent Moments</h2>
+        <p>${sorted.length ? `Showing <strong>${sorted.length}</strong> photo${sorted.length === 1 ? "" : "s"} from the ${esc(timeframeLabels[currentRecentTimeframe].toLowerCase())}.` : `No photos uploaded in the selected timeframe.`}</p>
+      </div>
+
+      <div class="timeframe-bar">
+        <div class="timeframe-selector" role="group" aria-label="Filter photos by timeframe">
+          <button type="button" class="timeframe-btn ${currentRecentTimeframe === "day" ? "active" : ""}" data-timeframe="day">Day</button>
+          <button type="button" class="timeframe-btn ${currentRecentTimeframe === "week" ? "active" : ""}" data-timeframe="week">Week</button>
+          <button type="button" class="timeframe-btn ${currentRecentTimeframe === "month" ? "active" : ""}" data-timeframe="month">Month</button>
+        </div>
+        ${sorted.length ? galleryControlsHtml(currentSort, currentLayout) : ""}
+      </div>
+
+      <div id="recent-photo-container">
+        ${sorted.length
+          ? `<div class="photo-grid ${currentLayout !== "grid" ? `photo-grid-${currentLayout}` : ""}">
+              ${sorted.map((p, i) => photoTile(p, i, admin)).join("")}
+            </div>`
+          : `<section class="empty">
+              <p>No photos were added in the past ${currentRecentTimeframe}.</p>
+              <div style="margin-top: .8rem; display: flex; gap: .6rem; justify-content: center;">
+                ${currentRecentTimeframe !== "week" ? `<button type="button" class="btn" id="switch-to-week">View Past Week</button>` : ""}
+                ${currentRecentTimeframe !== "month" ? `<button type="button" class="btn primary" id="switch-to-month">View Past Month</button>` : ""}
+              </div>
+            </section>`}
+      </div>
+    `);
+
+    // Wire timeframe buttons
+    document.querySelectorAll(".timeframe-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tf = btn.dataset.timeframe;
+        if (tf && tf !== currentRecentTimeframe) {
+          currentRecentTimeframe = tf;
+          renderRecent();
+        }
+      });
+    });
+
+    document.getElementById("switch-to-week")?.addEventListener("click", () => {
+      currentRecentTimeframe = "week";
+      renderRecent();
+    });
+    document.getElementById("switch-to-month")?.addEventListener("click", () => {
+      currentRecentTimeframe = "month";
+      renderRecent();
+    });
+
+    const controls = document.querySelector(".gallery-controls");
+    if (controls) {
+      wireGalleryControls(
+        controls,
+        (newSort) => { currentSort = newSort; renderRecent(); },
+        (newLayout) => {
+          currentLayout = newLayout;
+          const grid = document.querySelector(".photo-grid");
+          if (grid) grid.className = `photo-grid ${newLayout !== "grid" ? `photo-grid-${newLayout}` : ""}`;
+        }
+      );
+    }
+
+    if (sorted.length) {
+      await mountPhotoGrid(sorted, admin, renderRecent);
+    }
+  } catch (err) {
+    render(`<section class="empty"><p>Couldn't load recent photos: ${esc(err.message)}</p></section>`);
   }
 }
 const renderLatest = renderRecent;
@@ -2001,6 +2170,7 @@ function syncNavWithFlags() {
   const nav = document.getElementById("site-nav");
   if (!nav) return;
   const flagMap = {
+    "/cloud": "tagCloud",
     "/recent": "recentRoute",
     "/random": "randomRoute",
     "/favorites": "favorites",
@@ -2024,9 +2194,9 @@ function wireHelpModal() {
 
   if (helpToggle && helpModal) {
     helpToggle.addEventListener("click", () => { helpModal.hidden = false; });
-    helpClose?.addEventListener("click", () => { helpModal.hidden = true; });
-    helpModal.addEventListener("click", (e) => { if (e.target === helpModal) helpModal.hidden = true; });
   }
+  helpClose?.addEventListener("click", () => { if (helpModal) helpModal.hidden = true; });
+  helpModal?.addEventListener("click", (e) => { if (e.target === helpModal) helpModal.hidden = true; });
 
   if (helpShowTips) {
     helpShowTips.checked = localStorage.getItem("oc.showTips") === "true";
@@ -2107,6 +2277,7 @@ function route() {
   const [hash] = fullHash.split("?");
 
   if (hash === "/tags" || hash === "/categories") return renderTags();
+  if (hash === "/cloud" && Flags.isEnabled("tagCloud")) return renderTagCloud();
   if (hash === "/collections") return renderCollections();
   if (hash === "/map") return renderMap();
   if (hash === "/random" && Flags.isEnabled("randomRoute")) return renderRandom();
@@ -2139,8 +2310,9 @@ window.addEventListener("hashchange", () => {
   setHeaderVar();
   addEventListener("resize", setHeaderVar);
 
-  document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+  document.getElementById("theme-toggle")?.addEventListener("click", toggleTheme);
   applyThemeButton();
+  wireHeaderMenu();
   wireThemeModal();
   wireHelpModal();
   wireDragDropUpload();

@@ -8,9 +8,9 @@ import fs from "node:fs";
 // Import modules to test
 import { Flags, DEFAULT_FLAGS, FLAG_DEFINITIONS } from "../site/flags.js";
 import { events, EventBus, ThemeRegistry, LayoutRegistry, WidgetRegistry, OptionsRegistry, widgets, options } from "../site/plugins.js";
-import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags, getThemeColors } from "../site/tagcloud.js";
+import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags, getThemeColors, initTagCloud } from "../site/tagcloud.js";
 import { Favorites } from "../site/favorites.js";
-import { sortPhotos, groupPhotosByDate, getVisualPhotoItems, getPhotosInVisualOrder } from "../site/sorter.js";
+import { sortPhotos, filterPhotosByTimeframe, groupPhotosByDate, getVisualPhotoItems, getPhotosInVisualOrder } from "../site/sorter.js";
 import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "../site/search.js";
 
 // Helper mocks for browser globals when testing in Node
@@ -457,6 +457,34 @@ test("Search: highlightMatches wraps matching terms in mark tags", () => {
   );
 });
 
+test("Recent Photos: filterPhotosByTimeframe correctly filters photos into day, week, and month windows", () => {
+  const now = 1700000000 * 1000; // ms
+  const oneHour = 3600 * 1000;
+  const oneDay = 24 * 3600 * 1000;
+
+  const photos = [
+    { id: "today1", createdAt: Math.floor((now - 2 * oneHour) / 1000) }, // 2 hours ago (in day, week, month)
+    { id: "threeDaysAgo", createdAt: Math.floor((now - 3 * oneDay) / 1000) }, // 3 days ago (in week, month)
+    { id: "tenDaysAgo", createdAt: Math.floor((now - 10 * oneDay) / 1000) }, // 10 days ago (in month)
+    { id: "twoMonthsAgo", createdAt: Math.floor((now - 60 * oneDay) / 1000) }, // 60 days ago (none)
+  ];
+
+  // Day filter
+  const dayPhotos = filterPhotosByTimeframe(photos, "day", now);
+  assert.equal(dayPhotos.length, 1);
+  assert.equal(dayPhotos[0].id, "today1");
+
+  // Week filter
+  const weekPhotos = filterPhotosByTimeframe(photos, "week", now);
+  assert.equal(weekPhotos.length, 2);
+  assert.deepEqual(weekPhotos.map((p) => p.id), ["today1", "threeDaysAgo"]);
+
+  // Month filter
+  const monthPhotos = filterPhotosByTimeframe(photos, "month", now);
+  assert.equal(monthPhotos.length, 3);
+  assert.deepEqual(monthPhotos.map((p) => p.id), ["today1", "threeDaysAgo", "tenDaysAgo"]);
+});
+
 test("Recent Photo: sortPhotos date-desc correctly identifies the single latest photo", () => {
   const photos = [
     { id: "old", createdAt: 1600000000, description: "Old photo" },
@@ -791,5 +819,55 @@ test("Theme Modal: Done button, backdrop click, and Escape key dismiss modal", (
   keydownListener({ key: "Escape" });
   assert.equal(mockModal.hidden, true, "Pressing Escape must close theme modal");
 });
+
+// ---------------------------------------------------------------------------
+// Tests: Header Menu & Navigation Tab Updates
+// ---------------------------------------------------------------------------
+test("Header & Navigation: index.html contains collapsed menu, Tag Cloud tab, and removed Random tab", () => {
+  const indexHtml = fs.readFileSync(new URL("../site/index.html", import.meta.url), "utf8");
+
+  // Verify top-right collapsed menu structure
+  assert.ok(indexHtml.includes('id="header-menu-btn"'), "index.html must contain #header-menu-btn");
+  assert.ok(indexHtml.includes('id="header-menu-dropdown"'), "index.html must contain #header-menu-dropdown");
+  assert.ok(indexHtml.includes('id="menu-theme-btn"'), "index.html must contain #menu-theme-btn");
+  assert.ok(indexHtml.includes('id="menu-help-btn"'), "index.html must contain #menu-help-btn");
+  assert.ok(indexHtml.includes('id="auth-nav"'), "index.html must contain #auth-nav");
+
+  // Verify Tag Cloud tab exists in navigation
+  assert.ok(indexHtml.includes('href="#/cloud"'), "index.html navigation must link to #/cloud");
+  assert.ok(indexHtml.includes('data-route="/cloud"'), "index.html navigation must have data-route='/cloud'");
+
+  // Verify Random tab is removed from site-nav
+  const navMatch = indexHtml.match(/<nav class="site-nav"[\s\S]*?<\/nav>/);
+  assert.ok(navMatch, "site-nav must be present in index.html");
+  assert.equal(navMatch[0].includes('data-route="/random"'), false, "site-nav must NOT contain Random tab");
+});
+
+test("TagCloud: initTagCloud returns zoom and reset controls for fly-by navigation", () => {
+  let listeners = {};
+  const mockCanvas = {
+    getContext: () => ({
+      clearRect: () => {},
+      fillText: () => {},
+    }),
+    getBoundingClientRect: () => ({ width: 600, height: 400, left: 0, top: 0 }),
+    addEventListener: (evt, fn) => { listeners[evt] = fn; },
+    removeEventListener: () => {},
+    style: {},
+  };
+
+  const cleanup = initTagCloud(mockCanvas, [{ name: "scenery", count: 10 }], () => {});
+  assert.equal(typeof cleanup, "function");
+  assert.equal(typeof cleanup.zoomIn, "function", "cleanup must expose zoomIn for HUD control");
+  assert.equal(typeof cleanup.zoomOut, "function", "cleanup must expose zoomOut for HUD control");
+  assert.equal(typeof cleanup.reset, "function", "cleanup must expose reset for HUD control");
+
+  // Verify controls do not throw
+  cleanup.zoomIn();
+  cleanup.zoomOut();
+  cleanup.reset();
+  cleanup();
+});
+
 
 

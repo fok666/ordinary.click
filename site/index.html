@@ -31,9 +31,27 @@
         <p class="tagline">A personal collection of ordinary, everyday moments.</p>
       </div>
       <div class="site-actions">
-        <button id="help-toggle" class="icon-btn" title="Keyboard shortcuts & help (?)" aria-label="Help and shortcuts">?</button>
-        <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme"></button>
-        <nav id="auth-nav" class="auth-nav"></nav>
+        <div class="header-menu-container">
+          <button id="header-menu-btn" class="icon-btn header-menu-btn" title="Menu" aria-label="Menu" aria-expanded="false" aria-haspopup="true">
+            <span class="menu-icon">☰</span>
+          </button>
+          <div id="header-menu-dropdown" class="header-menu-dropdown" hidden role="menu" aria-label="Site menu">
+            <div class="menu-group">
+              <button type="button" id="menu-theme-btn" class="menu-item" role="menuitem">
+                <span class="menu-item-icon" id="menu-theme-icon">🎨</span>
+                <span class="menu-item-label" id="menu-theme-label">Theme</span>
+              </button>
+              <button type="button" id="menu-help-btn" class="menu-item" role="menuitem">
+                <span class="menu-item-icon">?</span>
+                <span class="menu-item-label">Shortcuts & Help</span>
+              </button>
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-group" id="menu-auth-group">
+              <nav id="auth-nav" class="auth-nav"></nav>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </header>
@@ -42,9 +60,9 @@
     <nav class="site-nav" id="site-nav">
       <a href="#/" data-route="/">Home</a>
       <a href="#/tags" data-route="/tags">Tags</a>
+      <a href="#/cloud" data-route="/cloud">Tag Cloud</a>
       <a href="#/collections" data-route="/collections">Collections</a>
       <a href="#/recent" data-route="/recent">Recent</a>
-      <a href="#/random" data-route="/random">Random</a>
       <a href="#/favorites" data-route="/favorites">Favorites</a>
       <a href="#/search" data-route="/search">Search</a>
       <a href="#/map" data-route="/map">Map</a>

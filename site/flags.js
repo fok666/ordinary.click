@@ -82,8 +82,8 @@ export const FLAG_DEFINITIONS = {
     id: "tagCloud",
     label: "3D Interactive Tag Cloud",
     category: "UI & Visuals",
-    purpose: "Renders the zero-dependency 3D rotating canvas sphere on the #/tags page.",
-    impact: "Interactive 3D tag discovery with momentum physics. 60fps HTML5 canvas rendering; turn off for static list on low-spec hardware.",
+    purpose: "Enables the #/cloud dedicated tab and view rendering the zero-dependency 3D rotating canvas sphere.",
+    impact: "Interactive 3D tag discovery with momentum physics and fly-by dolly navigation. 60fps HTML5 canvas rendering.",
     default: true,
   },
   customThemes: {

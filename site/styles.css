@@ -178,8 +178,97 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .1px; 
   display: flex; align-items: center; gap: .5rem;
   position: absolute; right: 1.5rem; top: 50%; transform: translateY(-50%);
 }
-.auth-nav { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-.auth-nav .who { color: var(--muted); font-size: .85rem; }
+.header-menu-container {
+  position: relative;
+}
+.header-menu-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.3rem; height: 2.3rem; font-size: 1.15rem; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  color: var(--fg); transition: all .15s ease;
+}
+.header-menu-btn:hover, .header-menu-btn[aria-expanded="true"] {
+  border-color: var(--accent); color: var(--accent); background: var(--surface-2);
+}
+.header-menu-dropdown {
+  position: absolute; top: calc(100% + .5rem); right: 0; z-index: 100;
+  min-width: 210px; padding: .45rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  display: flex; flex-direction: column; gap: .25rem;
+}
+.header-menu-dropdown[hidden] { display: none; }
+.menu-group { display: flex; flex-direction: column; gap: .2rem; }
+.menu-item {
+  width: 100%; border: 0; background: transparent; color: var(--fg);
+  padding: .5rem .75rem; border-radius: 6px; font-size: .88rem; text-align: left;
+  display: flex; align-items: center; gap: .65rem; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.menu-item:hover {
+  background: var(--surface-2); color: var(--accent);
+}
+.menu-item-icon { font-size: 1rem; width: 1.2rem; text-align: center; display: inline-block; }
+.menu-item-label { flex: 1; }
+.menu-divider { height: 1px; background: var(--border); margin: .3rem 0; }
+.auth-nav { display: flex; flex-direction: column; gap: .4rem; padding: .2rem .4rem; }
+.auth-nav .who { color: var(--muted); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-nav button { width: 100%; justify-content: center; }
+
+/* Timeframe filter for #/recent */
+.timeframe-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;
+}
+.timeframe-selector {
+  display: inline-flex; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px; gap: 2px;
+}
+.timeframe-btn {
+  border: 0; background: transparent; color: var(--muted); font-size: .86rem; font-weight: 500;
+  padding: .35rem .95rem; border-radius: 999px; cursor: pointer; transition: all .15s ease;
+}
+.timeframe-btn:hover { color: var(--fg); }
+.timeframe-btn.active {
+  background: var(--accent); color: var(--accent-contrast); font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+}
+
+/* Dedicated Tag Cloud Tab View */
+.tagcloud-page-view {
+  position: relative; width: 100%; height: calc(100vh - var(--header-h, 75px) - 90px);
+  min-height: 520px; display: flex; flex-direction: column;
+}
+.tagcloud-canvas-fullscreen {
+  flex: 1; width: 100%; height: 100%; display: block; border-radius: var(--radius);
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--surface) 60%, transparent), transparent 75%);
+  cursor: grab;
+}
+.tagcloud-hud {
+  position: absolute; bottom: 1.25rem; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: .8rem;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(12px); border: 1px solid var(--border-strong);
+  border-radius: 999px; padding: .35rem .85rem; box-shadow: var(--shadow-md);
+  z-index: 10;
+}
+.tagcloud-hud-btn {
+  width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--fg); font-size: 1.1rem; cursor: pointer; transition: all .15s;
+}
+.tagcloud-hud-btn:hover {
+  border-color: var(--accent); color: var(--accent); transform: scale(1.08);
+}
+.tagcloud-hud-hint {
+  font-size: .8rem; color: var(--muted); white-space: nowrap; user-select: none;
+}
+@media (max-width: 600px) {
+  .tagcloud-hud-hint { display: none; }
+}
 
 /* --- Layout --------------------------------------------------------------- */
 .layout {

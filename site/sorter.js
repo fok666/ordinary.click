@@ -55,6 +55,35 @@ export function sortPhotos(photos, strategy = "date-desc") {
 }
 
 /**
+ * Filter an array of photo objects by timeframe (day, week, month).
+ *
+ * @param {Array<object>} photos
+ * @param {'day'|'week'|'month'} timeframe
+ * @param {number} [nowMs] - Reference timestamp in milliseconds (defaults to Date.now())
+ * @returns {Array<object>}
+ */
+export function filterPhotosByTimeframe(photos, timeframe = "week", nowMs = Date.now()) {
+  if (!Array.isArray(photos) || !photos.length) return [];
+
+  const msMap = {
+    day: 24 * 60 * 60 * 1000,
+    week: 7 * 24 * 60 * 60 * 1000,
+    month: 30 * 24 * 60 * 60 * 1000,
+  };
+  const duration = msMap[timeframe] || msMap.week;
+  const cutoff = nowMs - duration;
+
+  return sortPhotos(
+    photos.filter((p) => {
+      const rawTs = p.createdAt || p.updatedAt || 0;
+      const ts = rawTs < 10000000000 ? rawTs * 1000 : rawTs;
+      return ts >= cutoff;
+    }),
+    "date-desc"
+  );
+}
+
+/**
  * Group photos by chronological time buckets (e.g. Today, This Week, Month Year).
  *
  * @param {Array<object>} photos

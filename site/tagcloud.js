@@ -151,24 +151,33 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return () => {};
 
+  const hasWindow = typeof window !== "undefined";
+  const getDpr = () => (hasWindow && window.devicePixelRatio ? window.devicePixelRatio : 1);
+
   // Setup HiDPI resolution
   function resize() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { width: 400, height: 360 };
+    const dpr = getDpr();
     canvas.width = (rect.width || 400) * dpr;
     canvas.height = (rect.height || 360) * dpr;
   }
   resize();
-  window.addEventListener("resize", resize);
+  if (hasWindow && typeof window.addEventListener === "function") {
+    window.addEventListener("resize", resize);
+  }
 
-  const baseRadius = Math.min(canvas.width, canvas.height) * 0.38 / (window.devicePixelRatio || 1);
+  const baseRadius = Math.min(canvas.width, canvas.height) * 0.38 / getDpr();
   let points = createSpherePoints(filteredTags, baseRadius);
 
-  // Rotation physics
+  // Rotation & Dolly Camera physics
   let angleX = 0.0018;
   let angleY = 0.0028;
   let targetAngleX = angleX;
   let targetAngleY = angleY;
+  let zoom = options.zoom || 1.0;
+  let targetZoom = zoom;
+  let dollyZ = options.dollyZ || 0; // camera dolly offset along Z
+  let targetDollyZ = dollyZ;
   let isDragging = false;
   let lastPos = { x: 0, y: 0 };
   let hoveredTag = null;
@@ -178,6 +187,7 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
   let projectedPoints = [];
   let dragDistance = 0;
   let downPos = { x: 0, y: 0 };
+  let touchStartDist = 0;
   const DRAG_THRESHOLD_PX = 6;
 
   function getTagAt(clientX, clientY) {
@@ -186,7 +196,7 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
     const my = (clientY - rect.top) * (canvas.height / rect.height);
 
     for (const p of [...projectedPoints].sort((a, b) => b.z - a.z)) {
-      if (p.z < 0) continue; // Only hover front hemisphere
+      if (p.z < -baseRadius * 0.9) continue; // Behind clipping plane
       const d = Math.hypot(p.x - mx, p.y - my);
       if (d < p.hitRadius) {
         return p.name;
@@ -196,6 +206,14 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
   }
 
   function onPointerDown(e) {
+    if (e.touches && e.touches.length === 2) {
+      isDragging = false;
+      touchStartDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      return;
+    }
     isDragging = true;
     dragDistance = 0;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -205,6 +223,19 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
   }
 
   function onPointerMove(e) {
+    if (e.touches && e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      if (touchStartDist > 0) {
+        const factor = dist / touchStartDist;
+        targetDollyZ = Math.max(-baseRadius * 1.5, Math.min(baseRadius * 2.5, targetDollyZ + (factor - 1) * 120));
+        touchStartDist = dist;
+      }
+      return;
+    }
+
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
 
@@ -227,6 +258,9 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
   }
 
   function onPointerUp(e) {
+    if (e.touches && e.touches.length < 2) {
+      touchStartDist = 0;
+    }
     if (!isDragging) return;
     isDragging = false;
     canvas.style.cursor = hoveredTag ? "pointer" : "default";
@@ -238,6 +272,13 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
         onTagClick(tag);
       }
     }
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    // Dolly camera forward/backward along Z axis
+    const delta = -Math.sign(e.deltaY) * Math.min(80, Math.max(20, Math.abs(e.deltaY) * 0.6));
+    targetDollyZ = Math.max(-baseRadius * 1.8, Math.min(baseRadius * 2.8, targetDollyZ + delta));
   }
 
   function onClick(e) {
@@ -253,12 +294,17 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
 
   canvas.addEventListener("mousedown", onPointerDown);
   canvas.addEventListener("mousemove", onPointerMove);
-  window.addEventListener("mouseup", onPointerUp);
+  if (hasWindow && typeof window.addEventListener === "function") {
+    window.addEventListener("mouseup", onPointerUp);
+  }
 
   canvas.addEventListener("touchstart", onPointerDown, { passive: true });
   canvas.addEventListener("touchmove", onPointerMove, { passive: true });
-  window.addEventListener("touchend", onPointerUp);
+  if (hasWindow && typeof window.addEventListener === "function") {
+    window.addEventListener("touchend", onPointerUp);
+  }
 
+  canvas.addEventListener("wheel", onWheel, { passive: false });
   canvas.addEventListener("click", onClick);
 
   function render() {
@@ -267,9 +313,11 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
     const h = canvas.height;
     const radius = Math.min(w, h) * 0.38;
 
-    // Smooth inertia interpolation
+    // Smooth inertia and dolly camera interpolation
     angleX += (targetAngleX - angleX) * 0.08;
     angleY += (targetAngleY - angleY) * 0.08;
+    dollyZ += (targetDollyZ - dollyZ) * 0.1;
+    zoom += (targetZoom - zoom) * 0.1;
 
     // Decay drag impulse back to gentle idle drift
     if (!isDragging) {
@@ -281,7 +329,7 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Rotate points
+    // Rotate points and apply dolly camera offset
     for (let i = 0; i < points.length; i++) {
       const rotated = rotatePoint(points[i], angleX, angleY);
       points[i].x = rotated.x;
@@ -292,23 +340,37 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
     // Determine current theme accent & text color dynamically from active theme tokens
     const { baseColor, accentColor, isDark } = getThemeColors();
 
-    // Project and sort by depth (z-index)
-    projectedPoints = points.map((p) => {
-      const proj = projectPoint(p, w, h, radius);
-      const fontSize = Math.max(11 * dpr, Math.min(22 * dpr, (12 + Math.log2(p.count + 1) * 3) * dpr)) * proj.scale;
-      const hitRadius = fontSize * (p.name.length * 0.38);
-      return {
-        name: p.name,
-        count: p.count,
-        x: proj.x,
-        y: proj.y,
-        z: p.z,
-        scale: proj.scale,
-        alpha: proj.alpha,
-        fontSize,
-        hitRadius,
-      };
-    }).sort((a, b) => a.z - b.z);
+    // Project and sort by depth (z-index) with camera dolly translation
+    const effectiveFov = 450 * zoom;
+    projectedPoints = points
+      .map((p) => {
+        // Point shifted by camera dolly along Z
+        const shiftedPoint = { x: p.x, y: p.y, z: p.z + dollyZ };
+        // Near-plane clipping for fly-by (fade out as point passes behind the camera)
+        const clipDist = effectiveFov * 0.85;
+        if (shiftedPoint.z >= clipDist) return null;
+
+        const proj = projectPoint(shiftedPoint, w, h, radius, effectiveFov);
+        const nearFade = Math.max(0, Math.min(1, (clipDist - shiftedPoint.z) / 120));
+        const alpha = proj.alpha * nearFade;
+        if (alpha <= 0.01) return null;
+
+        const fontSize = Math.max(11 * dpr, Math.min(26 * dpr, (12 + Math.log2(p.count + 1) * 3) * dpr)) * proj.scale;
+        const hitRadius = fontSize * (p.name.length * 0.38);
+        return {
+          name: p.name,
+          count: p.count,
+          x: proj.x,
+          y: proj.y,
+          z: shiftedPoint.z,
+          scale: proj.scale,
+          alpha,
+          fontSize,
+          hitRadius,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.z - b.z);
 
     // Draw tags
     for (const p of projectedPoints) {
@@ -360,20 +422,35 @@ export function initTagCloud(canvas, tags, onTagClick, options = {}) {
     ctx.filter = "none";
     ctx.shadowBlur = 0;
 
+    if (hasWindow && typeof requestAnimationFrame === "function") {
+      animId = requestAnimationFrame(render);
+    }
+  }
+
+  if (hasWindow && typeof requestAnimationFrame === "function") {
     animId = requestAnimationFrame(render);
   }
 
-  animId = requestAnimationFrame(render);
-
-  return () => {
-    if (animId) cancelAnimationFrame(animId);
-    window.removeEventListener("resize", resize);
+  const cleanup = () => {
+    if (animId && hasWindow && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(animId);
+    }
+    if (hasWindow && typeof window.removeEventListener === "function") {
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mouseup", onPointerUp);
+      window.removeEventListener("touchend", onPointerUp);
+    }
     canvas.removeEventListener("mousedown", onPointerDown);
     canvas.removeEventListener("mousemove", onPointerMove);
-    window.removeEventListener("mouseup", onPointerUp);
     canvas.removeEventListener("touchstart", onPointerDown);
     canvas.removeEventListener("touchmove", onPointerMove);
-    window.removeEventListener("touchend", onPointerUp);
+    canvas.removeEventListener("wheel", onWheel);
     canvas.removeEventListener("click", onClick);
   };
+
+  cleanup.zoomIn = () => { targetDollyZ = Math.min(baseRadius * 2.8, targetDollyZ + 90); };
+  cleanup.zoomOut = () => { targetDollyZ = Math.max(-baseRadius * 1.8, targetDollyZ - 90); };
+  cleanup.reset = () => { targetDollyZ = 0; targetAngleX = 0.0018; targetAngleY = 0.0028; };
+
+  return cleanup;
 }
