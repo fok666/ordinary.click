@@ -919,5 +919,22 @@ test("Spatial Math: calculateDepthShader calculates DoF blur and foggy fade", ()
   assert.equal(distant.isVisible, false);
 });
 
+// ---------------------------------------------------------------------------
+// Tests: Admin Segregation
+// ---------------------------------------------------------------------------
+test("Admin Segregation: files exist and contain complete admin interface", () => {
+  const adminHtml = fs.readFileSync(new URL("../site/admin/index.html", import.meta.url), "utf8");
+  const adminJs = fs.readFileSync(new URL("../site/admin/admin.js", import.meta.url), "utf8");
+  const adminCss = fs.readFileSync(new URL("../site/admin/admin.css", import.meta.url), "utf8");
+
+  assert.ok(adminHtml.includes('id="auth-nav"'));
+  assert.ok(adminHtml.includes('id="upload-modal"'));
+  assert.ok(adminHtml.includes('id="meta-modal"'));
+  assert.ok(adminHtml.includes('id="collection-modal"'));
+  assert.ok(adminJs.includes("startLogin"));
+  assert.ok(adminJs.includes("handleAuthRedirect"));
+  assert.ok(adminCss.length > 100);
+});
+
 
 

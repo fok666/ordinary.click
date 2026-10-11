@@ -251,11 +251,18 @@ class GalleryDevHandler(http.server.SimpleHTTPRequestHandler):
                 "cognito": {
                     "domain": "localhost:8000",
                     "clientId": "mock-local-client",
-                    "redirectUri": "http://localhost:8000/",
-                    "logoutUri": "http://localhost:8000/",
+                    "redirectUri": "http://localhost:8000/admin/",
+                    "logoutUri": "http://localhost:8000/admin/",
                 },
                 "devMode": True,
             })
+
+        # Admin portal redirect
+        if path == "/admin":
+            self.send_response(301)
+            self.send_header("Location", "/admin/")
+            self.end_headers()
+            return
 
         # 2. API: Health
         if path == "/api/health":

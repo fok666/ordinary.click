@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>ordinary.click — Admin</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="/admin/admin.css" />
+  <link rel="icon" href="data:," />
+</head>
+
+<body>
+  <header class="admin-header">
+    <div class="brand-section">
+      <h1>ordinary.click · Admin</h1>
+      <a href="/" class="back-link">← Return to Gallery</a>
+    </div>
+    <div class="auth-section">
+      <nav id="auth-nav" class="auth-nav"></nav>
+    </div>
+  </header>
+
+  <main class="admin-main" id="admin-app">
+    <!-- Upload Section -->
+    <section class="admin-card">
+      <h2>📤 Upload Photos</h2>
+      <div class="dropzone" id="admin-dropzone">
+        <div class="icon">🖼️</div>
+        <p><strong>Drag & drop images here</strong> or click to browse</p>
+        <p style="font-size: 0.85rem; color: var(--fg-muted); margin-top: 0.25rem;">Supports JPEG, PNG, WebP, AVIF</p>
+        <input type="file" id="upload-file-input" multiple accept="image/*" style="display: none;" />
+      </div>
+      <div id="upload-status" style="margin-top: 1rem; display: none;"></div>
+    </section>
+
+    <!-- Collections Management -->
+    <section class="admin-card">
+      <h2>
+        <span>📁 Collections</span>
+        <button type="button" id="btn-new-collection" class="primary sm">+ New Collection</button>
+      </h2>
+      <div id="collections-list" class="admin-list">Loading collections…</div>
+    </section>
+
+    <!-- Tags Management -->
+    <section class="admin-card">
+      <h2>🏷️ Tags</h2>
+      <div id="tags-list" class="admin-list">Loading tags…</div>
+    </section>
+
+    <!-- Photo Catalog Management -->
+    <section class="admin-card">
+      <h2>📸 Photo Catalog</h2>
+      <div id="photos-grid" class="photo-admin-grid">Loading catalog…</div>
+    </section>
+  </main>
+
+  <!-- Upload Progress Modal -->
+  <div id="upload-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3>Uploading Photos</h3>
+      <div id="upload-list"></div>
+      <div class="modal-actions">
+        <button type="button" id="upload-close" class="primary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Photo Metadata Modal -->
+  <div id="meta-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3>Edit Photo Metadata</h3>
+      <form id="meta-form">
+        <input type="hidden" id="meta-id" />
+        <label class="field">Description
+          <textarea id="meta-desc" rows="3" maxlength="2000" placeholder="Photo caption or story (#hashtags automatically become tags)"></textarea>
+        </label>
+        <div class="field">
+          <span class="field-label">Tags</span>
+          <div class="chips-input" id="meta-categories"></div>
+        </div>
+        <div class="field ai-tags-field" id="meta-ai-tags-section" hidden>
+          <div class="ai-tags-header">
+            <span class="field-label">✨ AI Suggestions (Rekognition)</span>
+            <div class="ai-tags-actions">
+              <button type="button" id="meta-ai-add-all" class="ghost sm">+ Add all</button>
+              <button type="button" id="meta-ai-dismiss" class="ghost sm">Dismiss</button>
+            </div>
+          </div>
+          <div class="ai-tags-list" id="meta-ai-tags-list"></div>
+        </div>
+        <label class="field">Collection
+          <select id="meta-collection"></select>
+        </label>
+        <div class="field">
+          <span class="field-label">Location (GPS)</span>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="number" id="meta-lat" step="any" min="-90" max="90" placeholder="Latitude" style="flex: 1;" />
+            <input type="number" id="meta-lng" step="any" min="-180" max="180" placeholder="Longitude" style="flex: 1;" />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="meta-cancel" class="ghost">Cancel</button>
+          <button type="submit" class="primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Collection Modal -->
+  <div id="collection-modal" class="modal" hidden>
+    <div class="modal-card">
+      <h3 id="collection-modal-title">New Collection</h3>
+      <form id="collection-form">
+        <input type="hidden" id="collection-id" />
+        <label class="field">Title
+          <input type="text" id="collection-title" maxlength="120" required placeholder="e.g. Summer Travels" />
+        </label>
+        <label class="field">Description
+          <textarea id="collection-desc" rows="3" maxlength="2000" placeholder="Collection notes"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" id="collection-cancel" class="ghost">Cancel</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Drag & Drop Overlay -->
+  <div id="drag-drop-overlay" class="drag-drop-overlay" hidden>
+    <div class="drag-drop-box">
+      <div style="font-size: 3rem; margin-bottom: 0.5rem;">📥</div>
+      <h3>Drop photos to upload</h3>
+      <p style="color: var(--fg-muted);">Release files to begin presigned upload</p>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="/admin/admin.js" type="module"></script>
+</body>
+
+</html>
