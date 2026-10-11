@@ -12,6 +12,7 @@ import { createSpherePoints, rotatePoint, projectPoint, filterCloudTags, getThem
 import { Favorites } from "../site/favorites.js";
 import { sortPhotos, filterPhotosByTimeframe, groupPhotosByDate, getVisualPhotoItems, getPhotosInVisualOrder } from "../site/sorter.js";
 import { tokenizeQuery, buildPhotoSearchText, searchPhotos, highlightMatches } from "../site/search.js";
+import { PHI, calculatePhotoCoordinates, calculateDepthShader, AXIS_PRESETS } from "../site/spatial.js";
 
 // Helper mocks for browser globals when testing in Node
 function createMockStorage() {
@@ -867,6 +868,55 @@ test("TagCloud: initTagCloud returns zoom and reset controls for fly-by navigati
   cleanup.zoomOut();
   cleanup.reset();
   cleanup();
+});
+
+// ---------------------------------------------------------------------------
+// Tests: 3D Spatial Mathematical & Coordinate Engine
+// ---------------------------------------------------------------------------
+test("Spatial Math: PHI equals the golden ratio", () => {
+  assert.ok(Math.abs(PHI - 1.61803398875) < 1e-6);
+});
+
+test("Spatial Math: calculatePhotoCoordinates orders latest photo at front Z=0", () => {
+  const samplePhotos = [
+    { id: "p1", createdAt: 1710200000 },
+    { id: "p2", createdAt: 1710100000 },
+    { id: "p3", createdAt: 1710000000 },
+  ];
+  const coords = calculatePhotoCoordinates(samplePhotos, { preset: "landscape" });
+  assert.equal(coords.length, 3);
+  assert.equal(coords[0].id, "p1");
+  assert.equal(coords[0].z, 0); // latest photo is at foreground Z=0
+  assert.ok(coords[1].z < 0);   // older photo recedes into -Z
+  assert.ok(coords[2].z < coords[1].z); // oldest photo is furthest back
+});
+
+test("Spatial Math: golden ratio axis scaling applies to coordinates", () => {
+  const samplePhotos = [
+    { id: "p1", createdAt: 1710000000 },
+    { id: "p2", createdAt: 1700000000 },
+  ];
+  const coords = calculatePhotoCoordinates(samplePhotos, { preset: "landscape", goldenMultiplier: 1.5 });
+  assert.ok(coords[1].z < -100);
+});
+
+test("Spatial Math: calculateDepthShader calculates DoF blur and foggy fade", () => {
+  // Focal plane (camera right at photo Z=0)
+  const focal = calculateDepthShader(0, 0);
+  assert.equal(focal.blur, 0);
+  assert.equal(focal.grayscale, 0);
+  assert.equal(focal.opacity, 1);
+  assert.equal(focal.tier, "display");
+
+  // Midground (photo at Z=-1000, camera at Z=0)
+  const mid = calculateDepthShader(-1000, 0);
+  assert.ok(mid.blur > 0);
+  assert.ok(mid.grayscale > 0);
+  assert.equal(mid.tier, "thumb");
+
+  // Extreme horizon beyond max distance
+  const distant = calculateDepthShader(-4000, 0);
+  assert.equal(distant.isVisible, false);
 });
 
 
