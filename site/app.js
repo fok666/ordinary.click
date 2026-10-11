@@ -492,6 +492,20 @@ function showLightbox() {
   });
 
   let html = "";
+  const dateStr = item.createdAt
+    ? new Date(item.createdAt * 1000).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : "";
+  const dimStr = item.width && item.height ? `${item.width}×${item.height}` : "";
+  if (dateStr || dimStr) {
+    html += `<div class="lb-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem; font-size:0.78rem; color:#aaa;">` +
+      (dateStr ? `<span>📅 ${dateStr}</span>` : "<span></span>") +
+      (dimStr ? `<span>${dimStr}</span>` : "") +
+      `</div>`;
+  }
   if (item.description) html += `<div class="lb-desc">${descHtml(item.description)}</div>`;
   if (photoTags(item).length) {
     html += `<div class="lb-row">` + photoTags(item).map((c) =>

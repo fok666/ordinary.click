@@ -970,6 +970,31 @@ test("Spatial Navigation: CameraController updates position and dampens velocity
   assert.equal(camera.targetZ, 0);
 });
 
+// ---------------------------------------------------------------------------
+// Tests: Spatial Inspection & Bottom-Left Legend
+// ---------------------------------------------------------------------------
+test("Spatial Inspection: generates legend metadata with hashtags and bottom-left layout", async () => {
+  const photo = {
+    id: "p_test",
+    description: "Alpine sunset over the ridge #mountains #sunset",
+    createdAt: 1710000000,
+    tags: ["nature", "mountains", "sunset"],
+    collectionId: "c_alps",
+    latitude: 46.5,
+    longitude: 8.2,
+    width: 1920,
+    height: 1080,
+  };
+  const { createPhotoLegendHtml } = await import("../site/spatial.js");
+  const html = createPhotoLegendHtml(photo);
+  assert.ok(html.includes("Alpine sunset over the ridge"), "must contain description");
+  assert.ok(html.includes("#mountains"), "must contain parsed hashtag");
+  assert.ok(html.includes("c_alps") || html.includes("Collection"), "must contain collection chip");
+  assert.ok(html.includes("46.50"), "must contain formatted latitude");
+  assert.ok(html.includes("1920×1080"), "must contain resolution dimensions");
+});
+
+
 
 
 
