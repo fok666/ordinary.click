@@ -398,6 +398,7 @@ function invalidateCatalog() {
 // Auth nav
 // ---------------------------------------------------------------------------
 function renderAuthNav() {
+  if (!authNav) return;
   if (isLoggedIn()) {
     const email = currentUserEmail() || "admin";
     authNav.innerHTML = `<span class="who">${esc(email)}</span><button id="logout-btn" class="ghost">Sign out</button>`;

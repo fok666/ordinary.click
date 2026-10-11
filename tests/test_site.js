@@ -832,7 +832,7 @@ test("Header & Navigation: index.html contains collapsed menu, Tag Cloud tab, an
   assert.ok(indexHtml.includes('id="header-menu-dropdown"'), "index.html must contain #header-menu-dropdown");
   assert.ok(indexHtml.includes('id="menu-theme-btn"'), "index.html must contain #menu-theme-btn");
   assert.ok(indexHtml.includes('id="menu-help-btn"'), "index.html must contain #menu-help-btn");
-  assert.ok(indexHtml.includes('id="auth-nav"'), "index.html must contain #auth-nav");
+  assert.ok(indexHtml.includes('href="/admin/"') || indexHtml.includes('href="/admin"'), "index.html must link to /admin/");
 
   // Verify Tag Cloud tab exists in navigation
   assert.ok(indexHtml.includes('href="#/cloud"'), "index.html navigation must link to #/cloud");
@@ -842,6 +842,16 @@ test("Header & Navigation: index.html contains collapsed menu, Tag Cloud tab, an
   const navMatch = indexHtml.match(/<nav class="site-nav"[\s\S]*?<\/nav>/);
   assert.ok(navMatch, "site-nav must be present in index.html");
   assert.equal(navMatch[0].includes('data-route="/random"'), false, "site-nav must NOT contain Random tab");
+});
+
+test("Visitor Isolation: index.html has zero admin modals or auth forms", () => {
+  const indexHtml = fs.readFileSync(new URL("../site/index.html", import.meta.url), "utf8");
+  assert.equal(indexHtml.includes('id="upload-modal"'), false, "index.html must not contain #upload-modal");
+  assert.equal(indexHtml.includes('id="meta-modal"'), false, "index.html must not contain #meta-modal");
+  assert.equal(indexHtml.includes('id="collection-modal"'), false, "index.html must not contain #collection-modal");
+  assert.equal(indexHtml.includes('id="drag-drop-overlay"'), false, "index.html must not contain #drag-drop-overlay");
+  assert.ok(indexHtml.includes('id="spatial-viewport"'), "index.html must contain #spatial-viewport");
+  assert.ok(indexHtml.includes('href="/admin/"') || indexHtml.includes('href="/admin"'), "index.html must link to /admin/");
 });
 
 test("TagCloud: initTagCloud returns zoom and reset controls for fly-by navigation", () => {

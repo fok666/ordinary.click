@@ -734,13 +734,18 @@ input[type="file"] { color: var(--muted); }
 .lightbox-prev { left: 1rem; top: 50%; transform: translateY(-50%); }
 .lightbox-next { right: 1rem; top: 50%; transform: translateY(-50%); }
 .lightbox-meta {
-  position: absolute; inset: auto 0 0 0; z-index: 10;
-  padding: 1rem 1.4rem;
-  background: linear-gradient(transparent, rgba(0, 0, 0, .82));
-  color: #eee; font-size: .9rem; max-height: 34vh; overflow-y: auto;
+  position: absolute; bottom: 1.5rem; left: 1.5rem; right: auto; z-index: 10;
+  padding: 1.15rem 1.35rem;
+  background: rgba(18, 19, 22, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  color: #eee; font-size: .88rem; max-width: min(440px, calc(100vw - 3rem)); max-height: 40vh; overflow-y: auto;
 }
 .lightbox-meta:empty { display: none; }
-.lightbox-meta .lb-desc { color: #fff; margin-bottom: .4rem; }
+.lightbox-meta .lb-desc { color: #fff; margin-bottom: .4rem; line-height: 1.45; }
 .lightbox-meta .lb-row { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .3rem; }
 .lightbox-meta .chip { background: rgba(255, 255, 255, .12); border-color: transparent; color: #fff; pointer-events: auto; }
 .lightbox-meta .chip:hover { background: rgba(255, 255, 255, .25); }
@@ -1056,4 +1061,212 @@ button.chip:hover { border-color: var(--accent); color: var(--accent); }
   .photo-grid.photo-grid-masonry { columns: 2 120px; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .tagcloud-canvas { height: 280px; }
+}
+
+/* --- 3D Spatial Landscape Viewport --------------------------------------- */
+.spatial-viewport {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - var(--header-h, 70px) - 60px);
+  min-height: 520px;
+  overflow: hidden;
+  perspective: 1000px;
+  perspective-origin: 50% 50%;
+  background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.25) 100%);
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.spatial-viewport:active {
+  cursor: grabbing;
+}
+
+.spatial-world {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.photo-card-3d {
+  position: absolute;
+  width: 320px;
+  height: 240px;
+  left: -160px;
+  top: -120px;
+  background: var(--bg-surface);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.4), 0 8px 12px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  will-change: transform, filter, opacity;
+  translate: 0px 0px;
+  rotate: 0deg;
+  scale: 1;
+}
+
+.photo-card-3d:hover {
+  border-color: var(--accent);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 16px rgba(78, 128, 238, 0.35);
+}
+
+.photo-card-3d img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.photo-card-3d .card-meta-tag {
+  position: absolute;
+  bottom: 0;
+  inset-inline: 0;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 500;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Foreground latest photo frame */
+.photo-card-3d.photo-frame-latest {
+  width: 380px;
+  height: 285px;
+  left: -190px;
+  top: -142px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.65), 0 0 25px rgba(255, 255, 255, 0.2);
+  z-index: 10;
+}
+
+.photo-card-3d.photo-frame-latest::before {
+  content: "Latest";
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  z-index: 2;
+}
+
+/* --- Floating Spatial HUD ------------------------------------------------- */
+.spatial-hud {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  pointer-events: auto;
+}
+
+.hud-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 1rem;
+  background: rgba(23, 22, 20, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.hud-pill button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.hud-pill button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.hud-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.hud-select-label, .hud-slider-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.hud-select-label select {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.hud-slider-label input[type="range"] {
+  width: 65px;
+  accent-color: var(--accent);
+}
+
+@media (max-width: 680px) {
+  .spatial-viewport {
+    height: calc(100vh - var(--header-h, 110px) - 60px);
+  }
+  .hud-pill {
+    gap: 0.4rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+  }
+  .hud-select-label span, .hud-slider-label span {
+    display: none;
+  }
+  .hud-select-label select {
+    max-width: 130px;
+    font-size: 0.75rem;
+  }
+  .photo-card-3d {
+    width: 260px;
+    height: 195px;
+    left: -130px;
+    top: -97px;
+  }
+  .photo-card-3d.photo-frame-latest {
+    width: 300px;
+    height: 225px;
+    left: -150px;
+    top: -112px;
+  }
 }

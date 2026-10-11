@@ -51,8 +51,11 @@
               </button>
             </div>
             <div class="menu-divider"></div>
-            <div class="menu-group" id="menu-auth-group">
-              <nav id="auth-nav" class="auth-nav"></nav>
+            <div class="menu-group">
+              <a href="/admin/" id="menu-admin-link" class="menu-item" role="menuitem" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:0.5rem; width:100%;">
+                <span class="menu-item-icon">⚙️</span>
+                <span class="menu-item-label">Admin Portal</span>
+              </a>
             </div>
           </div>
         </div>
@@ -62,7 +65,7 @@
 
   <div class="layout">
     <nav class="site-nav" id="site-nav">
-      <a href="#/" data-route="/">Home</a>
+      <a href="#/" data-route="/">3D Landscape</a>
       <a href="#/tags" data-route="/tags">Tags</a>
       <a href="#/cloud" data-route="/cloud">Tag Cloud</a>
       <a href="#/collections" data-route="/collections">Collections</a>
@@ -72,12 +75,32 @@
       <a href="#/map" data-route="/map">Map</a>
     </nav>
     <main id="app">
-      <section class="loading">
-        <p>Loading…</p>
-      </section>
+      <div id="spatial-viewport" class="spatial-viewport" role="region" aria-label="3D Photo Landscape">
+        <div class="spatial-world" id="spatial-world"></div>
+        <div class="spatial-hud" id="spatial-hud">
+          <div class="hud-pill">
+            <button type="button" id="hud-reset-cam" title="Reset Camera to Latest Photo (Home / 0)">🎯 Reset</button>
+            <div class="hud-divider"></div>
+            <label class="hud-select-label">
+              <span>Layout:</span>
+              <select id="hud-preset-select" title="Change Axis Grouping Preset">
+                <option value="landscape">Landscape Valley (Day X / Month Y / Year Z)</option>
+                <option value="seasonal">Seasonal Arch (Month X / Day Y / Year Z)</option>
+                <option value="ribbon">Linear Sinuous Ribbon</option>
+              </select>
+            </label>
+            <div class="hud-divider"></div>
+            <label class="hud-slider-label" title="Golden Ratio Coarseness Multiplier">
+              <span>φ:</span>
+              <input type="range" id="hud-golden-scale" min="0.8" max="2.2" step="0.2" value="1.0" />
+            </label>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
+  <!-- Fullscreen Photo Viewer / Lightbox with Bottom-Left Legend -->
   <div id="lightbox" class="lightbox" hidden role="dialog" aria-modal="true" aria-label="Photo viewer">
     <div class="lightbox-backdrop" aria-hidden="true"></div>
     <button class="lightbox-close" aria-label="Close">×</button>
@@ -88,128 +111,47 @@
     <div class="lightbox-meta" id="lightbox-meta"></div>
   </div>
 
-  <!-- Edit photo metadata -->
-  <div id="meta-modal" class="modal" hidden>
-    <div class="modal-card">
-      <h3>Edit photo</h3>
-      <form id="meta-form">
-        <label class="field">Description
-          <textarea id="meta-desc" rows="3" maxlength="2000"></textarea>
-        </label>
-        <div class="field">
-          <span class="field-label">Tags</span>
-          <div class="chips-input" id="meta-categories"></div>
-        </div>
-        <div class="field ai-tags-field" id="meta-ai-tags-section" hidden>
-          <div class="ai-tags-header">
-            <span class="field-label">✨ AI Suggestions (Rekognition)</span>
-            <div class="ai-tags-actions">
-              <button type="button" id="meta-ai-add-all" class="ghost-btn sm" title="Add all AI suggestions to tags">+
-                Add all</button>
-              <button type="button" id="meta-ai-dismiss" class="ghost-btn sm"
-                title="Dismiss AI suggestions">Dismiss</button>
-            </div>
-          </div>
-          <div class="ai-tags-list" id="meta-ai-tags-list"></div>
-        </div>
-        <label class="field">Collection
-          <select id="meta-collection"></select>
-        </label>
-        <div class="field">
-          <span class="field-label">Location</span>
-          <div class="location-picker" id="meta-location-picker">
-            <div class="location-search-wrap">
-              <input type="text" class="location-search" placeholder="Search city or place…" autocomplete="off" />
-              <ul class="location-results"></ul>
-            </div>
-            <div class="location-coords">
-              <label>Lat<br /><input type="number" id="meta-lat" step="any" min="-90" max="90"
-                  placeholder="47.38" /></label>
-              <label>Lng<br /><input type="number" id="meta-lng" step="any" min="-180" max="180"
-                  placeholder="8.54" /></label>
-              <button type="button" class="location-map-btn icon-btn" title="Pick on map">📍</button>
-            </div>
-            <div class="location-picker-map"></div>
-            <div class="recent-locations"></div>
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button type="button" id="meta-cancel">Cancel</button>
-          <button type="submit" class="primary">Save</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Create / edit collection -->
-  <div id="collection-modal" class="modal" hidden>
-    <div class="modal-card">
-      <h3 id="collection-modal-title">New collection</h3>
-      <form id="collection-form">
-        <label class="field">Title
-          <input type="text" id="collection-title" maxlength="120" required placeholder="e.g. Trip to Lisbon" />
-        </label>
-        <label class="field">Description
-          <textarea id="collection-desc" rows="3" maxlength="2000"></textarea>
-        </label>
-        <div class="modal-actions">
-          <button type="button" id="collection-cancel">Cancel</button>
-          <button type="submit" class="primary">Save</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Drag & Drop Upload Overlay -->
-  <div id="drag-drop-overlay" class="drag-drop-overlay" hidden>
-    <div class="drag-drop-box">
-      <span class="drag-icon">📤</span>
-      <h3>Drop photos to upload</h3>
-      <p>JPEG, PNG, WebP, AVIF</p>
-    </div>
-  </div>
-
   <!-- Help & Shortcuts Modal -->
   <div id="help-modal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
     <div class="modal-card">
-      <h3 id="help-modal-title">Shortcuts & Gallery Tips</h3>
+      <h3 id="help-modal-title">3D Landscape & Gallery Shortcuts</h3>
       <table class="shortcut-table">
         <tbody>
           <tr>
-            <td><kbd>←</kbd> / <kbd>→</kbd></td>
-            <td>Navigate photos in lightbox</td>
+            <td><kbd>Wheel</kbd> / <kbd>W</kbd> <kbd>S</kbd> / <kbd>↑</kbd> <kbd>↓</kbd></td>
+            <td>Fly through time along Z axis</td>
           </tr>
           <tr>
-            <td><kbd>Esc</kbd></td>
-            <td>Close lightbox or modal</td>
+            <td><kbd>Drag</kbd> / <kbd>A</kbd> <kbd>D</kbd> / <kbd>←</kbd> <kbd>→</kbd></td>
+            <td>Pan landscape across X & Y axes</td>
+          </tr>
+          <tr>
+            <td><kbd>[</kbd> / <kbd>]</kbd></td>
+            <td>Jump to previous / next photo in time</td>
+          </tr>
+          <tr>
+            <td><kbd>Home</kbd> / <kbd>0</kbd></td>
+            <td>Reset camera to latest photo in front</td>
+          </tr>
+          <tr>
+            <td><kbd>Click photo</kbd></td>
+            <td>Bring photo to front in full-screen</td>
           </tr>
           <tr>
             <td><kbd>F</kbd></td>
             <td>Favorite / bookmark photo</td>
           </tr>
           <tr>
-            <td><kbd>/</kbd></td>
-            <td>Jump to Instant Search</td>
+            <td><kbd>Esc</kbd></td>
+            <td>Exit full-screen view</td>
           </tr>
           <tr>
             <td><kbd>?</kbd></td>
-            <td>Toggle this shortcut guide</td>
+            <td>Toggle shortcuts & help</td>
           </tr>
         </tbody>
       </table>
-      <h4 style="margin: 1rem 0 .4rem;">Hashtags & Tag Drilldown</h4>
-      <p style="font-size: .88rem; color: var(--muted); margin: 0 0 1rem;">
-        Photos with <code>#hashtags</code> in their description automatically link to tag collections. Click multiple
-        tag filter chips on any gallery view to narrow down photos matching all selected tags simultaneously.
-      </p>
-      <div class="field">
-        <label
-          style="display: flex; align-items: center; gap: .55rem; cursor: pointer; font-size: .88rem; color: var(--fg);">
-          <input type="checkbox" id="help-show-tips" style="width: auto; margin: 0;" />
-          <span>Show contextual micro-tips <code>(!)</code> on gallery pages</span>
-        </label>
-      </div>
-      <div class="modal-actions">
+      <div class="modal-actions" style="margin-top: 1rem;">
         <button type="button" id="help-close" class="primary">Got it</button>
       </div>
     </div>
@@ -235,6 +177,7 @@
       <a href="https://github.com/fok666/ordinary.click"><img src="https://github.githubassets.com/favicons/favicon.png"
           width="14" height="14" alt="Code in GitHub" /></a> Code released under <a
         href="https://opensource.org/licenses/MIT">MIT</a> license.
+      &middot; <a href="/admin/">Admin Portal</a>
     </small>
   </footer>
 
