@@ -26,6 +26,7 @@ import { initTagCloud } from "./tagcloud.js";
 import { Favorites } from "./favorites.js";
 import { sortPhotos, filterPhotosByTimeframe, groupPhotosByDate, getPhotosInVisualOrder } from "./sorter.js";
 import { tokenizeQuery, searchPhotos, highlightMatches } from "./search.js";
+import { initSpatialScene } from "./spatial.js";
 
 const app = document.getElementById("app");
 const authNav = document.getElementById("auth-nav");
@@ -1352,41 +1353,58 @@ async function wireUploadPanel(presetTags, onDone) {
 // ---------------------------------------------------------------------------
 // Cover / home
 // ---------------------------------------------------------------------------
+let spatialCleanup = null;
+
 async function renderCover() {
   markActiveNav("/");
-  render(`<section class="loading"><p>Loading…</p></section>`);
-  try {
-    const cat = await getCatalog();
-    const covers = [
-      ...cat.tags.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.name, kind: "tag", href: `#/t/${encodeURIComponent(c.name)}` })),
-      ...cat.collections.filter((c) => c.cover).map((c) => ({ cover: c.cover, fb: c.coverFallback, label: c.title, kind: "collection", href: `#/collection/${encodeURIComponent(c.id)}` })),
-    ];
-    const hero = covers.length ? covers[Math.floor(Math.random() * covers.length)] : null;
-    const t = cat.totals;
+  if (spatialCleanup) {
+    spatialCleanup();
+    spatialCleanup = null;
+  }
 
-    const heroHtml = hero ? `
-      <a class="cover-hero" href="${hero.href}">
-        <img src="${esc(hero.fb || hero.cover)}" alt="${esc(hero.label)}" />
-        <div class="cover-hero-overlay">
-          <span class="kicker">${hero.kind}</span>
-          <h2>${esc(hero.label)}</h2>
+  render(`
+    <div id="spatial-viewport" class="spatial-viewport" role="region" aria-label="3D Photo Landscape">
+      <div class="spatial-world" id="spatial-world"></div>
+      <div class="spatial-hud" id="spatial-hud">
+        <div class="hud-pill">
+          <button type="button" id="hud-reset-cam" title="Reset Camera to Latest Photo (Home / 0)">🎯 Reset</button>
+          <div class="hud-divider"></div>
+          <label class="hud-select-label">
+            <span>Layout:</span>
+            <select id="hud-preset-select" title="Change Axis Grouping Preset">
+              <option value="landscape">Landscape Valley (Day X / Month Y / Year Z)</option>
+              <option value="seasonal">Seasonal Arch (Month X / Day Y / Year Z)</option>
+              <option value="ribbon">Linear Sinuous Ribbon</option>
+            </select>
+          </label>
+          <div class="hud-divider"></div>
+          <label class="hud-slider-label" title="Golden Ratio Coarseness Multiplier">
+            <span>φ:</span>
+            <input type="range" id="hud-golden-scale" min="0.8" max="2.2" step="0.2" value="1.0" />
+          </label>
         </div>
-      </a>` : "";
+      </div>
+    </div>
+  `);
 
-    const featured = cat.collections.slice(0, 4).map(collectionCard).join("");
+  try {
+    const photos = await getPhotos();
+    if (!photos.length) {
+      const cat = await getCatalog().catch(() => null);
+      if (!cat?.totals?.photos) {
+        render(`<section class="empty"><p>Nothing here yet. Visit the <a href="/admin/">Admin Portal</a> to upload your first photos.</p></section>`);
+        return;
+      }
+    }
 
-    render(`
-      <section class="cover-intro">
-        <h2>Welcome</h2>
-        <p>${t.photos
-          ? `A quiet archive of <strong>${t.photos}</strong> photo${t.photos === 1 ? "" : "s"}, across <strong>${t.tags}</strong> tag${t.tags === 1 ? "" : "s"} and <strong>${t.collections}</strong> collection${t.collections === 1 ? "" : "s"}.`
-          : `Nothing here yet. Sign in to upload your first photos.`}</p>
-      </section>
-      ${heroHtml}
-      ${featured ? `<!--div class="section-title"><h3>Collections</h3><a href="#/collections">See all →</a></div><div class="card-grid">${featured}</div-->` : ""}
-    `);
+    const vp = document.getElementById("spatial-viewport");
+    if (vp) {
+      spatialCleanup = initSpatialScene(vp, photos, {}, (photo, index) => {
+        openLightbox(photos, index);
+      });
+    }
   } catch (err) {
-    render(`<section class="empty"><p>Couldn't load: ${esc(err.message)}</p></section>`);
+    render(`<section class="empty"><p>Couldn't load photos: ${esc(err.message)}</p></section>`);
   }
 }
 
@@ -2276,6 +2294,10 @@ function route() {
   const fullHash = location.hash.replace(/^#/, "") || "/";
   events.emit("route:change", { hash: fullHash });
   const [hash] = fullHash.split("?");
+  if (hash !== "/" && spatialCleanup) {
+    spatialCleanup();
+    spatialCleanup = null;
+  }
 
   if (hash === "/tags" || hash === "/categories") return renderTags();
   if (hash === "/cloud" && Flags.isEnabled("tagCloud")) return renderTagCloud();

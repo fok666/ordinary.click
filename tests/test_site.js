@@ -946,5 +946,30 @@ test("Admin Segregation: files exist and contain complete admin interface", () =
   assert.ok(adminCss.length > 100);
 });
 
+// ---------------------------------------------------------------------------
+// Tests: 3D Camera Controller
+// ---------------------------------------------------------------------------
+test("Spatial Navigation: CameraController updates position and dampens velocity", async () => {
+  const { CameraController } = await import("../site/spatial.js");
+  const camera = new CameraController();
+  assert.equal(camera.x, 0);
+  assert.equal(camera.y, 0);
+  assert.equal(camera.z, 0);
+
+  camera.flyZ(300);
+  camera.update(16);
+  assert.ok(camera.z !== 0, "camera Z should advance after flyZ");
+
+  camera.pan(50, -20);
+  camera.update(16);
+  assert.ok(camera.x !== 0, "camera X should update after pan");
+
+  camera.reset();
+  assert.equal(camera.targetX, 0);
+  assert.equal(camera.targetY, 0);
+  assert.equal(camera.targetZ, 0);
+});
+
+
 
 
