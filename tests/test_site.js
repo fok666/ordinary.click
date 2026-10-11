@@ -994,6 +994,37 @@ test("Spatial Inspection: generates legend metadata with hashtags and bottom-lef
   assert.ok(html.includes("1920×1080"), "must contain resolution dimensions");
 });
 
+// ---------------------------------------------------------------------------
+// Tests: Spatial HUD & Multi-Device Presets
+// ---------------------------------------------------------------------------
+test("Spatial HUD: supports switching axis presets dynamically", () => {
+  const photos = [
+    { id: "p1", createdAt: 1710200000 },
+    { id: "p2", createdAt: 1709000000 },
+    { id: "p3", createdAt: 1708000000 },
+  ];
+  const valley = calculatePhotoCoordinates(photos, { preset: "landscape" });
+  const arch = calculatePhotoCoordinates(photos, { preset: "seasonal" });
+  const ribbon = calculatePhotoCoordinates(photos, { preset: "ribbon" });
+
+  assert.notDeepEqual(valley[1], arch[1], "seasonal layout must differ from landscape");
+  assert.notDeepEqual(valley[1], ribbon[1], "ribbon layout must differ from landscape");
+  assert.notDeepEqual(arch[1], ribbon[1], "ribbon layout must differ from seasonal");
+});
+
+test("Spatial HUD: golden ratio coarseness scales coordinates proportionally", () => {
+  const photos = [
+    { id: "p1", createdAt: 1710200000 },
+    { id: "p2", createdAt: 1700000000 },
+  ];
+  const normal = calculatePhotoCoordinates(photos, { goldenMultiplier: 1.0 });
+  const expanded = calculatePhotoCoordinates(photos, { goldenMultiplier: 2.0 });
+
+  assert.ok(Math.abs(expanded[1].z) > Math.abs(normal[1].z), "higher golden multiplier must expand Z depth");
+  assert.ok(Math.abs(expanded[1].y) > Math.abs(normal[1].y), "higher golden multiplier must expand Y elevation");
+});
+
+
 
 
 
