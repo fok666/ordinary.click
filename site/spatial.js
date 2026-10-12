@@ -107,12 +107,19 @@ export function calculatePhotoCoordinates(photos, options = {}) {
       x = Math.sin(angle) * sx * 2.8 * scaleX;
       y = Math.cos(angle * 0.7) * sy * 1.8 * scaleY;
     } else {
-      // Default: Landscape Valley (X = Day, Y = Month, Z = Year/Timeline)
+      // Default: Landscape Valley (Wide 3D Amphitheater Valley)
+      // Alternating bilateral flanks with golden ratio progression across valley floor
       const dayOffset = (day - 16) / 15;
-      const landscapeCurve = Math.cos(dayOffset * Math.PI * 0.5);
-      x = (dayOffset * sx * 3.6 + Math.sin(index * 0.5) * (sx * 0.4)) * scaleX;
+      const side = (index % 2 === 0 ? 1 : -1);
+      // Lateral flank offset: alternating left and right flanks with golden spiral variation
+      const flankDistance = (0.55 + 0.45 * Math.sin(index * 0.75)) * sx * 3.2;
+      x = (side * flankDistance + dayOffset * sx * 1.5) * scaleX;
+
+      // Amphitheater bowl curvature: photos higher on the valley ridges
+      const bowlHeight = Math.min(100, Math.pow(x / (sx * 2.5), 2) * 18);
+      const terraceTier = ((index % 3) - 1) * sy * 0.45;
       const monthWave = Math.sin((month / 12) * Math.PI * 2);
-      y = (monthWave * 0.6 + ((month - 5.5) / 5.5) * 0.4 + landscapeCurve * 0.2) * sy * scaleY;
+      y = (-bowlHeight + monthWave * sy * 0.6 + terraceTier) * scaleY;
     }
 
     return {
@@ -140,7 +147,8 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
   const depth = cameraZ - photoZ;
   const maxHorizon = options.maxHorizon || 3500;
   const focalRange = options.focalRange || 300;
-  const exitRange = options.exitRange || 280;
+  const exitHold = options.exitHold !== undefined ? options.exitHold : 60;
+  const exitRange = options.exitRange || 520;
 
   // If photo is far behind camera or beyond max horizon
   if (depth < -exitRange || depth > maxHorizon) {
@@ -156,15 +164,32 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
   }
 
   // Photo is behind camera focal plane (-exitRange <= depth < 0):
-  // Gracefully fade out so it doesn't obstruct view or clicks
+  // Gracefully hold in focal center for exitHold window, then smoothly disperse outward
   if (depth < 0) {
-    const fade = clamp((depth + exitRange) / exitRange, 0, 1);
-    const exitProgress = clamp(-depth / exitRange, 0, 1);
+    const absDepth = -depth;
+    if (absDepth <= exitHold) {
+      // Focal hold window: stay centered, fully visible, zero blur
+      return {
+        blur: 0,
+        grayscale: 0,
+        opacity: 1.0,
+        isVisible: true,
+        tier: "display",
+        depth,
+        exitProgress: 0,
+      };
+    }
+
+    const activeExitDist = absDepth - exitHold;
+    const activeSpan = exitRange - exitHold;
+    const exitProgress = clamp(activeExitDist / activeSpan, 0, 1);
+    const fade = 1 - exitProgress;
+
     return {
-      blur: Math.round((1 - fade) * 4 * 10) / 10,
-      grayscale: Math.round((1 - fade) * 40),
-      opacity: Math.round(fade * 0.8 * 100) / 100,
-      isVisible: fade > 0.02,
+      blur: Math.round(exitProgress * 5 * 10) / 10,
+      grayscale: Math.round(exitProgress * 35),
+      opacity: Math.round(clamp(0.15 + fade * 0.85, 0, 1) * 100) / 100,
+      isVisible: exitProgress < 1,
       tier: "display",
       depth,
       exitProgress,
@@ -229,20 +254,23 @@ export function calculateExitDisplacement(coord, exitProgress, viewport = {}) {
   const ease = p * p * (3 - 2 * p);
 
   const vpWidth = (viewport && viewport.width) || 1200;
+  const idx = Number(coord.index) || 0;
 
-  // Determine which side of the viewport to exit toward:
-  // If photo is already off-center (|x| > 20), exit toward that side;
-  // otherwise, alternate side based on photo index (even -> right, odd -> left).
-  const side = Math.abs(coord.x || 0) > 20
-    ? Math.sign(coord.x)
-    : ((coord.index || 0) % 2 === 0 ? 1 : -1);
+  // Symmetrical bilateral distribution:
+  // Alternate strictly left/right based on photo index (even -> right, odd -> left).
+  // Guarantees 50% left, 50% right regardless of photo coordinate X!
+  const side = idx % 2 === 0 ? 1 : -1;
+
+  // Symmetrical vertical quadrant drift:
+  // Alternate upward drift vs downward drift (4-quadrant dispersal)
+  const vertSide = (idx % 4 === 0 || idx % 4 === 1) ? -1 : 1;
 
   // Distance needed to clear the central viewport: half viewport + margin
   const edgeDistX = Math.max(650, vpWidth * 0.55);
   const offsetX = Math.round(side * edgeDistX * ease);
 
   // Subtle natural arc: vertical drift and card rotation
-  const offsetY = Math.round(((coord.index || 0) % 3 === 0 ? -1 : 1) * 60 * ease);
+  const offsetY = Math.round(vertSide * 65 * ease);
   const rotateY = Math.round(side * -22 * ease);
   const rotateZ = Math.round(side * 12 * ease);
 

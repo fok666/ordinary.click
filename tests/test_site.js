@@ -1150,7 +1150,7 @@ test("Spatial Timeline Navigation: HTML and CSS support stepper buttons, counter
   assert.ok(spatialJs.includes("${-camera.z}px"), "spatial.js world transform must use inverse camera Z (${-camera.z}px)");
 });
 
-test("Spatial Exit Transition: calculateDepthShader computes exitProgress for exiting foreground frames", async () => {
+test("Spatial Exit Transition: calculateDepthShader computes exitProgress for exiting foreground frames with focal hold", async () => {
   const { calculateDepthShader } = await import("../site/spatial.js");
 
   // In focal plane (depth = 0): exitProgress must be 0
@@ -1161,39 +1161,93 @@ test("Spatial Exit Transition: calculateDepthShader computes exitProgress for ex
   const upcoming = calculateDepthShader(-800, -500);
   assert.equal(upcoming.exitProgress, 0);
 
-  // Exiting foreground behind camera (depth = -100): exitProgress between 0 and 1
-  const exiting = calculateDepthShader(-400, -500);
-  assert.ok(exiting.exitProgress > 0 && exiting.exitProgress < 1, "exitProgress must be between 0 and 1 for exiting frames");
+  // Within focal hold window (depth = -30px): exitProgress must be 0 to prevent moving out of the way too soon
+  const focalHold = calculateDepthShader(-470, -500);
+  assert.equal(focalHold.depth, -30);
+  assert.equal(focalHold.exitProgress, 0, "frames within focal hold window (depth >= -60px) must stay centered");
 
-  // Fully passed (depth = -350): exitProgress must be 1 and isVisible false
-  const passed = calculateDepthShader(-150, -500);
+  // Actively exiting foreground behind camera (depth = -180px): exitProgress between 0 and 1
+  const exiting = calculateDepthShader(-320, -500);
+  assert.ok(exiting.exitProgress > 0 && exiting.exitProgress < 1, "exitProgress must be between 0 and 1 for actively exiting frames");
+
+  // Fully passed (depth = -550px): exitProgress must be 1 and isVisible false
+  const passed = calculateDepthShader(50, -500);
   assert.equal(passed.exitProgress, 1);
   assert.equal(passed.isVisible, false);
 });
 
-test("Spatial Exit Transition: calculateExitDisplacement moves exiting frames to viewport edges", async () => {
+test("Spatial Exit Transition: calculateExitDisplacement moves exiting frames to viewport edges with balanced bilateral distribution", async () => {
   const { calculateExitDisplacement } = await import("../site/spatial.js");
 
-  const coord = { x: 0, y: 0, z: 0, index: 0 };
   const vp = { width: 1200, height: 800 };
 
   // At exitProgress = 0, no displacement
-  const zeroDisp = calculateExitDisplacement(coord, 0, vp);
+  const zeroDisp = calculateExitDisplacement({ x: 0, y: 0, z: 0, index: 0 }, 0, vp);
   assert.equal(zeroDisp.offsetX, 0);
   assert.equal(zeroDisp.offsetY, 0);
   assert.equal(zeroDisp.rotateY, 0);
   assert.equal(zeroDisp.rotateZ, 0);
 
   // At exitProgress = 1.0, frame moves to edge (offsetX >= 650px) to clear the center
-  const fullDisp = calculateExitDisplacement(coord, 1.0, vp);
+  const fullDisp = calculateExitDisplacement({ x: 0, y: 0, z: 0, index: 0 }, 1.0, vp);
   assert.ok(Math.abs(fullDisp.offsetX) >= 650, `offsetX ${fullDisp.offsetX} must move frame to edge (>= 650px)`);
   assert.ok(fullDisp.rotateY !== 0, "must include 3D yaw rotation");
   assert.ok(fullDisp.rotateZ !== 0, "must include 3D roll rotation");
 
-  // Alternating side for adjacent index or left/right coordinates
-  const leftCoord = { x: -100, y: 0, z: 0, index: 1 };
-  const leftDisp = calculateExitDisplacement(leftCoord, 1.0, vp);
-  assert.ok(leftDisp.offsetX < 0, "left-positioned photo must exit toward the left edge");
+  // Bilateral distribution check: verify strictly balanced 50/50 distribution across 20 photos
+  let leftCount = 0;
+  let rightCount = 0;
+  let topCount = 0;
+  let bottomCount = 0;
+
+  for (let i = 0; i < 20; i++) {
+    // Photos even with positive x coordinates should NOT all go to the right
+    const sampleCoord = { x: 150 + i * 20, y: 0, z: -i * 100, index: i };
+    const disp = calculateExitDisplacement(sampleCoord, 1.0, vp);
+    if (disp.offsetX < 0) leftCount++;
+    if (disp.offsetX > 0) rightCount++;
+    if (disp.offsetY < 0) topCount++;
+    if (disp.offsetY > 0) bottomCount++;
+  }
+
+  assert.equal(leftCount, 10, `exactly 10 photos out of 20 must exit left (got ${leftCount})`);
+  assert.equal(rightCount, 10, `exactly 10 photos out of 20 must exit right (got ${rightCount})`);
+  assert.equal(topCount, 10, `exactly 10 photos must drift upward (got ${topCount})`);
+  assert.equal(bottomCount, 10, `exactly 10 photos must drift downward (got ${bottomCount})`);
+});
+
+test("Spatial Landscape Valley: spreads photos across X, Y, and Z instead of 1D stacking", async () => {
+  const { calculatePhotoCoordinates } = await import("../site/spatial.js");
+
+  // Create 24 dummy photos all taken at the exact same timestamp (same day, same hour)
+  const sameTime = 1710000000;
+  const rawPhotos = Array.from({ length: 24 }, (_, i) => ({
+    id: `photo-${i}`,
+    createdAt: sameTime,
+  }));
+
+  const coords = calculatePhotoCoordinates(rawPhotos, { preset: "landscape" });
+
+  const xs = coords.map((c) => c.x);
+  const ys = coords.map((c) => c.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  // Photos must spread on both left and right sides of the valley
+  assert.ok(minX < -200, `minX must be < -200px across the left valley flank (got ${minX})`);
+  assert.ok(maxX > 200, `maxX must be > 200px across the right valley flank (got ${maxX})`);
+  assert.ok(maxX - minX >= 600, `horizontal spread (maxX - minX) must be >= 600px (got ${maxX - minX})`);
+
+  // Photos must spread vertically across tiered terraces
+  assert.ok(maxY - minY >= 100, `vertical elevation spread (maxY - minY) must be >= 100px (got ${maxY - minY})`);
+
+  // Left and right flank counts must both be well-populated
+  const leftFlank = coords.filter((c) => c.x < -50).length;
+  const rightFlank = coords.filter((c) => c.x > 50).length;
+  assert.ok(leftFlank >= 6, `left flank must have at least 6 photos (got ${leftFlank})`);
+  assert.ok(rightFlank >= 6, `right flank must have at least 6 photos (got ${rightFlank})`);
 });
 
 test("Spatial CSS: latest photo frame avoids static z-index 10 override", () => {
@@ -1203,6 +1257,7 @@ test("Spatial CSS: latest photo frame avoids static z-index 10 override", () => 
   assert.ok(match, "must have .photo-card-3d.photo-frame-latest rule");
   assert.ok(!match[1].includes("z-index: 10"), ".photo-frame-latest must not have static z-index: 10");
 });
+
 
 
 
