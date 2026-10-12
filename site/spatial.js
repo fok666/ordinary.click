@@ -431,10 +431,13 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   camera.setBounds(Math.min(-5000, deepestZ - 800), 350);
 
   // Drag detection state (to separate camera panning from clicking a photo)
-  let isDragging = false;
+  let isPointerDown = false;
+  let hasDragged = false;
+  let dragResetTimer = null;
   let startX = 0;
   let startY = 0;
   let totalDragDist = 0;
+  const DRAG_THRESHOLD = 5; // Pixels of movement required before panning starts
 
   // Active photo tracking & navigation helpers
   let activeIndex = 0;
@@ -467,6 +470,17 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     if (btnNextPhoto) {
       btnNextPhoto.disabled = idx >= photoCoords.length - 1;
     }
+
+    // Update focused frame styling and accessible tooltips on cards
+    cardElements.forEach((item, i) => {
+      if (i === idx) {
+        item.el.classList.add("photo-frame-focused");
+        item.el.title = "Click or double-click to view in fullscreen lightbox";
+      } else {
+        item.el.classList.remove("photo-frame-focused");
+        item.el.title = "Click to bring to foreground";
+      }
+    });
   }
 
   function jumpToPhoto(delta) {
@@ -490,6 +504,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     card.className = `photo-card-3d ${i === 0 ? "photo-frame-latest" : ""}`;
     card.dataset.id = coord.id;
     card.dataset.index = String(i);
+    card.title = i === 0 ? "Click to view in fullscreen lightbox" : "Click to bring to foreground";
 
     // Initial position
     card.style.transform = `translate3d(${coord.x}px, ${coord.y}px, ${coord.z}px)`;
@@ -514,18 +529,32 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
     card.addEventListener("click", (e) => {
       e.stopPropagation();
-      // If user dragged to pan, ignore click to prevent accidental modal popups
-      if (totalDragDist > 8) return;
+      // If user dragged to pan, ignore click to prevent accidental modal popups or jumps
+      if (hasDragged) return;
 
-      // If photo is already in camera focal plane, open full inspection lightbox;
-      // otherwise, smoothly glide camera to focus on it so visitor walks directly to it
-      const distFromFocal = Math.abs(camera.z - coord.z);
-      if (distFromFocal < 350) {
+      const currentIdx = findClosestIndex();
+      // A photo is considered already squarely centered if it is active/closest AND camera is squarely aligned with it
+      const isAlreadyCentered = (activeIndex === i || currentIdx === i) &&
+        Math.hypot(camera.x - coord.x, camera.y - coord.y) < 25 &&
+        Math.abs(camera.z - coord.z) < 45 &&
+        Math.abs(camera.pitch) < 3 &&
+        Math.abs(camera.yaw) < 3;
+
+      if (isAlreadyCentered) {
+        // Photo is already squarely in foreground focus -> open full inspection lightbox
         if (onSelectPhoto) {
           onSelectPhoto(coord, i);
         }
       } else {
+        // Bring this picture squarely to the foreground!
         jumpToIndex(i);
+      }
+    });
+
+    card.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      if (onSelectPhoto) {
+        onSelectPhoto(coord, i);
       }
     });
 
@@ -543,7 +572,9 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
     camera.update(dt);
 
-    // Apply inverse camera transform to world so camera movement reveals the 3D scene
+    // Dynamic rotation pivot point: shifts down the timeline along with camera X/Y/Z
+    // so rotating pitches/yaws around where the visitor is currently looking instead of swinging around Z=0
+    world.style.transformOrigin = `${camera.x}px ${camera.y}px ${camera.z}px`;
     world.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, ${-camera.z}px) rotateX(${camera.pitch}deg) rotateY(${camera.yaw}deg)`;
 
     // Viewport dimensions for calculating responsive edge dispersion
@@ -560,8 +591,10 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
         continue;
       }
       item.el.style.display = "block";
-      // Prevent passed cards behind camera from capturing clicks or obstructing view
-      item.el.style.pointerEvents = shader.depth < 0 ? "none" : "auto";
+      // Maintain pointerEvents for visible cards (including in focal hold and exiting frames)
+      // Only disable pointerEvents if card is fully culled or transparent
+      const isCardClickable = shader.isVisible && shader.opacity > 0.05 && shader.exitProgress < 1;
+      item.el.style.pointerEvents = isCardClickable ? "auto" : "none";
       item.el.style.filter = `blur(${shader.blur}px) grayscale(${shader.grayscale}%)`;
       item.el.style.opacity = String(shader.opacity);
 
@@ -590,26 +623,48 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
   animationFrameId = requestAnimationFrame(tick);
 
-  // Pointer panning & drag handling
+  // Pointer panning & drag handling with stationary threshold
   const onPointerDown = (e) => {
-    isDragging = true;
+    if (e.button !== undefined && e.button !== 0) return;
+    if (dragResetTimer) {
+      clearTimeout(dragResetTimer);
+      dragResetTimer = null;
+    }
+    isPointerDown = true;
+    hasDragged = false;
     startX = e.clientX;
     startY = e.clientY;
     totalDragDist = 0;
   };
 
   const onPointerMove = (e) => {
-    if (!isDragging) return;
+    if (!isPointerDown) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    totalDragDist += Math.hypot(dx, dy);
+    const dist = Math.hypot(dx, dy);
+    totalDragDist += dist;
+
+    if (!hasDragged) {
+      if (totalDragDist < DRAG_THRESHOLD) {
+        // Keep elements completely stationary during clicks
+        return;
+      }
+      hasDragged = true;
+    }
+
     startX = e.clientX;
     startY = e.clientY;
     camera.pan(dx * 1.2, dy * 1.2);
   };
 
   const onPointerUp = () => {
-    isDragging = false;
+    isPointerDown = false;
+    // Delay clearing hasDragged slightly so click event handlers firing in this frame/event loop can see it
+    dragResetTimer = setTimeout(() => {
+      hasDragged = false;
+      totalDragDist = 0;
+      dragResetTimer = null;
+    }, 60);
   };
 
   // Wheel zoom / travel along Z timeline
@@ -621,16 +676,22 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     camera.flyZ(delta);
   };
 
-  // Touch gesture support: 1-finger pan, 2-finger pinch
+  // Touch gesture support: 1-finger pan with threshold, 2-finger pinch
   let touchStartDist = 0;
   const onTouchStart = (e) => {
     if (e.touches.length === 1) {
+      if (dragResetTimer) {
+        clearTimeout(dragResetTimer);
+        dragResetTimer = null;
+      }
+      isPointerDown = true;
+      hasDragged = false;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       totalDragDist = 0;
-      isDragging = true;
     } else if (e.touches.length === 2) {
-      isDragging = false;
+      isPointerDown = false;
+      hasDragged = true;
       touchStartDist = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
@@ -639,10 +700,17 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   };
 
   const onTouchMove = (e) => {
-    if (e.touches.length === 1 && isDragging) {
+    if (e.touches.length === 1 && isPointerDown) {
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
-      totalDragDist += Math.hypot(dx, dy);
+      const dist = Math.hypot(dx, dy);
+      totalDragDist += dist;
+
+      if (!hasDragged) {
+        if (totalDragDist < DRAG_THRESHOLD) return;
+        hasDragged = true;
+      }
+
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       camera.pan(dx * 1.5, dy * 1.5);
@@ -659,8 +727,13 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   };
 
   const onTouchEnd = () => {
-    isDragging = false;
+    isPointerDown = false;
     touchStartDist = 0;
+    dragResetTimer = setTimeout(() => {
+      hasDragged = false;
+      totalDragDist = 0;
+      dragResetTimer = null;
+    }, 60);
   };
 
   // Keyboard navigation
@@ -780,6 +853,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   // Return teardown function
   return () => {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    if (dragResetTimer) clearTimeout(dragResetTimer);
     viewport.removeEventListener("pointerdown", onPointerDown);
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);

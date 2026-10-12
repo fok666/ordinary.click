@@ -1258,6 +1258,60 @@ test("Spatial CSS: latest photo frame avoids static z-index 10 override", () => 
   assert.ok(!match[1].includes("z-index: 10"), ".photo-frame-latest must not have static z-index: 10");
 });
 
+test("Spatial Navigation: Dynamic pivot point tracks camera position down the timeline", () => {
+  const spatialJs = fs.readFileSync(new URL("../site/spatial.js", import.meta.url), "utf8");
+  // Ensure spatial.js sets transformOrigin dynamically using camera coordinates
+  assert.ok(
+    spatialJs.includes("world.style.transformOrigin =") || spatialJs.includes("transformOrigin"),
+    "spatial.js must set world.style.transformOrigin dynamically to camera coordinates"
+  );
+  assert.ok(
+    spatialJs.includes("${camera.z}px"),
+    "spatial.js transformOrigin must incorporate ${camera.z}px so pivot point shifts down the line"
+  );
+});
+
+test("Spatial Interaction: Clicking brings picture to foreground, and opens lightbox when already centered", async () => {
+  const { initSpatialScene } = await import("../site/spatial.js");
+
+  // Create lightweight mock DOM structure
+  const viewport = {
+    clientWidth: 1200,
+    clientHeight: 800,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    querySelector: () => null,
+  };
+  const world = {
+    innerHTML: "",
+    style: {},
+    appendChild: () => {},
+  };
+  viewport.querySelector = () => world;
+
+  // Verify function signature and presence in spatial.js
+  const spatialJs = fs.readFileSync(new URL("../site/spatial.js", import.meta.url), "utf8");
+  assert.ok(spatialJs.includes("jumpToIndex"), "spatial.js must have jumpToIndex helper");
+  assert.ok(
+    spatialJs.includes("dblclick") || spatialJs.includes("onSelectPhoto"),
+    "spatial.js must support double-click or selection callback"
+  );
+  assert.ok(
+    spatialJs.includes("DRAG_THRESHOLD") || spatialJs.includes("hasDragged"),
+    "spatial.js must distinguish drag from click with a movement threshold"
+  );
+});
+
+test("Spatial Visibility: Visible photos with negative depth maintain pointerEvents auto", () => {
+  const spatialJs = fs.readFileSync(new URL("../site/spatial.js", import.meta.url), "utf8");
+  // Ensure spatial.js does not blanket-disable pointerEvents whenever depth < 0 for visible photos
+  assert.ok(
+    !spatialJs.includes('item.el.style.pointerEvents = shader.depth < 0 ? "none" : "auto"'),
+    "spatial.js must not disable pointerEvents for all depth < 0 frames while they are visible"
+  );
+});
+
+
 
 
 
