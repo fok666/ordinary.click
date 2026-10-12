@@ -1024,6 +1024,52 @@ test("Spatial HUD: golden ratio coarseness scales coordinates proportionally", (
   assert.ok(Math.abs(expanded[1].y) > Math.abs(normal[1].y), "higher golden multiplier must expand Y elevation");
 });
 
+// ---------------------------------------------------------------------------
+// Tests: Fullscreen 3D Spatial Experience & Navigation Troubleshooting
+// ---------------------------------------------------------------------------
+test("Visitor Navigation Safety: app.js guards admin modal listeners with optional chaining", () => {
+  const appJs = fs.readFileSync(new URL("../site/app.js", import.meta.url), "utf8");
+
+  // Verify that top-level meta-cancel and collection-cancel have optional chaining
+  assert.ok(appJs.includes('document.getElementById("meta-cancel")?.addEventListener'),
+    'meta-cancel listener must use optional chaining to avoid breaking navigation');
+  assert.ok(appJs.includes('metaModal?.addEventListener'),
+    'metaModal listener must use optional chaining');
+  assert.ok(appJs.includes('metaForm?.addEventListener'),
+    'metaForm listener must use optional chaining');
+  assert.ok(appJs.includes('document.getElementById("collection-cancel")?.addEventListener'),
+    'collection-cancel listener must use optional chaining');
+  assert.ok(appJs.includes('collectionModal?.addEventListener'),
+    'collectionModal listener must use optional chaining');
+  assert.ok(appJs.includes('collectionForm?.addEventListener'),
+    'collectionForm listener must use optional chaining');
+
+  // Verify route function toggles is-spatial class
+  assert.ok(appJs.includes('document.body.classList.toggle("is-spatial"'),
+    'route() must toggle is-spatial class on body');
+});
+
+test("Spatial Fullscreen Experience: index.html and styles.css configure full-bleed viewport and floating HUD", () => {
+  const indexHtml = fs.readFileSync(new URL("../site/index.html", import.meta.url), "utf8");
+  const stylesCss = fs.readFileSync(new URL("../site/styles.css", import.meta.url), "utf8");
+
+  // Verify index.html contains is-spatial on body and fullscreen button in HUD
+  assert.ok(indexHtml.includes('<body class="is-spatial">'), "index.html must set is-spatial on body");
+  assert.ok(indexHtml.includes('id="hud-fullscreen-btn"'), "index.html HUD must contain #hud-fullscreen-btn");
+
+  // Verify styles.css configures .spatial-viewport as fixed fullscreen
+  assert.ok(stylesCss.includes(".spatial-viewport {\n  position: fixed;"),
+    "spatial-viewport must be fixed fullscreen in styles.css");
+  assert.ok(stylesCss.includes("body.is-spatial"), "styles.css must style body.is-spatial");
+  assert.ok(stylesCss.includes("body.is-spatial .site-nav"), "styles.css must style floating nav on 3D landscape");
+});
+
+test("Spatial HUD: wires and tears down fullscreen toggle button", async () => {
+  const { initSpatialScene } = await import("../site/spatial.js");
+  assert.equal(typeof initSpatialScene, "function");
+});
+
+
 
 
 

@@ -506,6 +506,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   const btnReset = document.getElementById("hud-reset-cam");
   const selectPreset = document.getElementById("hud-preset-select");
   const sliderGolden = document.getElementById("hud-golden-scale");
+  const btnFullscreen = document.getElementById("hud-fullscreen-btn");
 
   const onResetCam = () => {
     camera.reset();
@@ -520,6 +521,20 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   const onGoldenChange = (e) => {
     currentGoldenMultiplier = parseFloat(e.target.value) || 1.0;
     updateLayout();
+  };
+
+  const onToggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  const onFullscreenChange = () => {
+    if (btnFullscreen) {
+      btnFullscreen.textContent = document.fullscreenElement ? "⛷ Exit" : "⛶ Fullscreen";
+    }
   };
 
   function updateLayout() {
@@ -538,6 +553,8 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   btnReset?.addEventListener("click", onResetCam);
   selectPreset?.addEventListener("change", onPresetChange);
   sliderGolden?.addEventListener("input", onGoldenChange);
+  btnFullscreen?.addEventListener("click", onToggleFullscreen);
+  document.addEventListener("fullscreenchange", onFullscreenChange);
 
   // Return teardown function
   return () => {
@@ -554,5 +571,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     btnReset?.removeEventListener("click", onResetCam);
     selectPreset?.removeEventListener("change", onPresetChange);
     sliderGolden?.removeEventListener("input", onGoldenChange);
+    btnFullscreen?.removeEventListener("click", onToggleFullscreen);
+    document.removeEventListener("fullscreenchange", onFullscreenChange);
   };
 }

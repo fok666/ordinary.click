@@ -821,12 +821,12 @@ async function openMetaModal(photo, onSaved) {
 }
 function closeMetaModal() {
   if (metaPicker) { metaPicker.destroy(); metaPicker = null; }
-  metaModal.hidden = true;
+  if (metaModal) metaModal.hidden = true;
   metaEditCallback = null;
 }
-document.getElementById("meta-cancel").addEventListener("click", closeMetaModal);
-metaModal.addEventListener("click", (e) => { if (e.target === metaModal) closeMetaModal(); });
-metaForm.addEventListener("submit", async (e) => {
+document.getElementById("meta-cancel")?.addEventListener("click", closeMetaModal);
+metaModal?.addEventListener("click", (e) => { if (e.target === metaModal) closeMetaModal(); });
+metaForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!metaEditCallback) return;
   const { photo, onSaved, getAiTags } = metaEditCallback;
@@ -881,10 +881,10 @@ function openCollectionModal(existing, onSaved) {
   collectionModal.hidden = false;
   setTimeout(() => collectionTitle.focus(), 30);
 }
-function closeCollectionModal() { collectionModal.hidden = true; collectionEditState = null; }
-document.getElementById("collection-cancel").addEventListener("click", closeCollectionModal);
-collectionModal.addEventListener("click", (e) => { if (e.target === collectionModal) closeCollectionModal(); });
-collectionForm.addEventListener("submit", async (e) => {
+function closeCollectionModal() { if (collectionModal) collectionModal.hidden = true; collectionEditState = null; }
+document.getElementById("collection-cancel")?.addEventListener("click", closeCollectionModal);
+collectionModal?.addEventListener("click", (e) => { if (e.target === collectionModal) closeCollectionModal(); });
+collectionForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!collectionEditState) return;
   const { existing, onSaved } = collectionEditState;
@@ -1375,6 +1375,7 @@ async function renderCover() {
     spatialCleanup();
     spatialCleanup = null;
   }
+  document.body.classList.add("is-spatial");
 
   render(`
     <div id="spatial-viewport" class="spatial-viewport" role="region" aria-label="3D Photo Landscape">
@@ -1396,6 +1397,8 @@ async function renderCover() {
             <span>φ:</span>
             <input type="range" id="hud-golden-scale" min="0.8" max="2.2" step="0.2" value="1.0" />
           </label>
+          <div class="hud-divider"></div>
+          <button type="button" id="hud-fullscreen-btn" title="Toggle Fullscreen">⛶ Fullscreen</button>
         </div>
       </div>
     </div>
@@ -2312,6 +2315,7 @@ function route() {
     spatialCleanup();
     spatialCleanup = null;
   }
+  document.body.classList.toggle("is-spatial", hash === "/" || !hash);
 
   if (hash === "/tags" || hash === "/categories") return renderTags();
   if (hash === "/cloud" && Flags.isEnabled("tagCloud")) return renderTagCloud();
