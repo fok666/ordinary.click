@@ -1069,6 +1069,88 @@ test("Spatial HUD: wires and tears down fullscreen toggle button", async () => {
   assert.equal(typeof initSpatialScene, "function");
 });
 
+test("Spatial Navigation: CameraController supports dynamic bounds and walks into negative Z past photos", async () => {
+  const { CameraController } = await import("../site/spatial.js");
+  const camera = new CameraController();
+
+  camera.setBounds(-8000, 350);
+  assert.equal(camera.minZ, -8000);
+  assert.equal(camera.maxZ, 350);
+
+  // Walk forward down the line into past photos (-Z)
+  camera.flyZ(-500);
+  assert.equal(camera.targetZ, -500);
+  camera.update(32);
+  assert.ok(camera.z < 0, "camera Z must advance into negative territory when walking forward");
+
+  // Focus directly on a past photo deep in the catalog
+  camera.focusPhoto({ x: 120, y: -45, z: -3200 });
+  assert.equal(camera.targetX, 120);
+  assert.equal(camera.targetY, -45);
+  assert.equal(camera.targetZ, -3200);
+
+  // Beyond boundary is clamped
+  camera.flyZ(-10000);
+  assert.equal(camera.targetZ, -8000);
+});
+
+test("Spatial DoF: calculateDepthShader brings past photos into focus and gracefully culls passed photos", async () => {
+  const { calculateDepthShader } = await import("../site/spatial.js");
+
+  // Visitor has walked down the line to camera Z = -1500
+  const cameraZ = -1500;
+
+  // Photo at Z = -1500 should be in crystal-clear focal plane
+  const currentPhoto = calculateDepthShader(-1500, cameraZ);
+  assert.equal(currentPhoto.depth, 0);
+  assert.equal(currentPhoto.blur, 0);
+  assert.equal(currentPhoto.grayscale, 0);
+  assert.equal(currentPhoto.opacity, 1);
+  assert.equal(currentPhoto.tier, "display");
+  assert.equal(currentPhoto.isVisible, true);
+
+  // Earlier photo at Z = 0 is far behind the camera (-1500px): must be culled
+  const pastPassedPhoto = calculateDepthShader(0, cameraZ);
+  assert.equal(pastPassedPhoto.depth, -1500);
+  assert.equal(pastPassedPhoto.isVisible, false);
+
+  // Photo slightly passed behind camera (-100px): fading out, depth < 0
+  const fadingPhoto = calculateDepthShader(-1400, cameraZ);
+  assert.equal(fadingPhoto.depth, -100);
+  assert.equal(fadingPhoto.isVisible, true);
+  assert.ok(fadingPhoto.opacity < 1.0, "photo passing behind camera must fade");
+  assert.ok(fadingPhoto.depth < 0, "depth must be negative for cards behind camera");
+
+  // Deeper past photo at Z = -2200 (700px ahead in depth): visible in soft DoF
+  const upcomingPhoto = calculateDepthShader(-2200, cameraZ);
+  assert.equal(upcomingPhoto.depth, 700);
+  assert.equal(upcomingPhoto.isVisible, true);
+  assert.ok(upcomingPhoto.blur > 1, "upcoming photo must have gentle optical DoF blur");
+});
+
+test("Spatial Timeline Navigation: HTML and CSS support stepper buttons, counter and inverse world Z transform", () => {
+  const indexHtml = fs.readFileSync(new URL("../site/index.html", import.meta.url), "utf8");
+  const appJs = fs.readFileSync(new URL("../site/app.js", import.meta.url), "utf8");
+  const stylesCss = fs.readFileSync(new URL("../site/styles.css", import.meta.url), "utf8");
+  const spatialJs = fs.readFileSync(new URL("../site/spatial.js", import.meta.url), "utf8");
+
+  // Verify stepper buttons and position counter in HTML and app.js
+  assert.ok(indexHtml.includes('id="hud-prev-photo"'), "index.html must have #hud-prev-photo");
+  assert.ok(indexHtml.includes('id="hud-next-photo"'), "index.html must have #hud-next-photo");
+  assert.ok(indexHtml.includes('id="hud-photo-counter"'), "index.html must have #hud-photo-counter");
+  assert.ok(appJs.includes('id="hud-prev-photo"'), "app.js must render #hud-prev-photo");
+  assert.ok(appJs.includes('id="hud-next-photo"'), "app.js must render #hud-next-photo");
+  assert.ok(appJs.includes('id="hud-photo-counter"'), "app.js must render #hud-photo-counter");
+
+  // Verify CSS styles stepper controls
+  assert.ok(stylesCss.includes(".hud-step-group"), "styles.css must style .hud-step-group");
+  assert.ok(stylesCss.includes(".hud-counter"), "styles.css must style .hud-counter");
+
+  // Verify spatial.js uses inverse camera Z transform
+  assert.ok(spatialJs.includes("${-camera.z}px"), "spatial.js world transform must use inverse camera Z (${-camera.z}px)");
+});
+
+
 
 
 

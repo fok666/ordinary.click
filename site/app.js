@@ -1382,7 +1382,13 @@ async function renderCover() {
       <div class="spatial-world" id="spatial-world"></div>
       <div class="spatial-hud" id="spatial-hud">
         <div class="hud-pill">
-          <button type="button" id="hud-reset-cam" title="Reset Camera to Latest Photo (Home / 0)">🎯 Reset</button>
+          <button type="button" id="hud-reset-cam" title="Reset Camera to Latest Photo (Home / 0)">🎯 Latest</button>
+          <div class="hud-divider"></div>
+          <div class="hud-step-group" role="group" aria-label="Photo timeline navigation">
+            <button type="button" id="hud-prev-photo" title="Step to Newer Photo ([)" aria-label="Newer photo"><span class="hud-step-label-full">‹ Newer</span><span class="hud-step-label-short">‹</span></button>
+            <span id="hud-photo-counter" class="hud-counter" title="Current position in timeline">1 / 1</span>
+            <button type="button" id="hud-next-photo" title="Walk Down Line to Past Photo (])" aria-label="Past photos"><span class="hud-step-label-full">Past Photos ›</span><span class="hud-step-label-short">›</span></button>
+          </div>
           <div class="hud-divider"></div>
           <label class="hud-select-label">
             <span>Layout:</span>

@@ -134,30 +134,49 @@ export function calculatePhotoCoordinates(photos, options = {}) {
  * @returns {{ blur: number, grayscale: number, opacity: number, isVisible: boolean, tier: "display"|"thumb" }}
  */
 export function calculateDepthShader(photoZ, cameraZ, options = {}) {
-  const depth = -(photoZ - cameraZ);
+  // depth: positive means photo is in front of camera (into depth),
+  // 0 means photo is right at the camera focal plane,
+  // negative means photo has passed behind the camera
+  const depth = cameraZ - photoZ;
   const maxHorizon = options.maxHorizon || 3500;
   const focalRange = options.focalRange || 300;
 
-  // If photo is behind camera or beyond max horizon
-  if (depth < -600 || depth > maxHorizon) {
+  // If photo is far behind camera or beyond max horizon
+  if (depth < -250 || depth > maxHorizon) {
     return {
       blur: 16,
       grayscale: 100,
       opacity: 0,
       isVisible: false,
       tier: "thumb",
+      depth,
     };
   }
 
-  // Foreground / Focal plane
-  if (Math.abs(depth) <= focalRange) {
-    const factor = Math.abs(depth) / focalRange;
+  // Photo is behind camera focal plane (-250 <= depth < 0):
+  // Gracefully fade out so it doesn't obstruct view or clicks
+  if (depth < 0) {
+    const fade = clamp((depth + 250) / 250, 0, 1);
+    return {
+      blur: Math.round((1 - fade) * 4 * 10) / 10,
+      grayscale: Math.round((1 - fade) * 40),
+      opacity: Math.round(fade * 0.8 * 100) / 100,
+      isVisible: fade > 0.02,
+      tier: "display",
+      depth,
+    };
+  }
+
+  // Foreground / Focal plane (0 <= depth <= focalRange)
+  if (depth <= focalRange) {
+    const factor = depth / focalRange;
     return {
       blur: Math.round(factor * 1.5 * 10) / 10,
       grayscale: Math.round(factor * 15),
       opacity: 1.0,
       isVisible: true,
       tier: "display",
+      depth,
     };
   }
 
@@ -180,6 +199,7 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
     opacity,
     isVisible: true,
     tier: "thumb",
+    depth,
   };
 }
 
@@ -187,7 +207,7 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
  * 3D Virtual Camera Controller with inertial velocity damping and limits.
  */
 export class CameraController {
-  constructor() {
+  constructor(options = {}) {
     this.x = 0;
     this.y = 0;
     this.z = 0;
@@ -199,18 +219,26 @@ export class CameraController {
     this.targetPitch = 0;
     this.targetYaw = 0;
     this.damping = 0.12;
+    this.minZ = options.minZ !== undefined ? options.minZ : -50000;
+    this.maxZ = options.maxZ !== undefined ? options.maxZ : 400;
+  }
+
+  setBounds(minZ, maxZ) {
+    this.minZ = minZ;
+    this.maxZ = maxZ;
+    this.targetZ = clamp(this.targetZ, this.minZ, this.maxZ);
   }
 
   flyZ(delta) {
     this.targetZ += delta;
-    this.targetZ = clamp(this.targetZ, -3400, 400);
+    this.targetZ = clamp(this.targetZ, this.minZ, this.maxZ);
   }
 
   pan(dx, dy) {
     this.targetX -= dx;
     this.targetY -= dy;
-    this.targetX = clamp(this.targetX, -1600, 1600);
-    this.targetY = clamp(this.targetY, -1200, 1200);
+    this.targetX = clamp(this.targetX, -4000, 4000);
+    this.targetY = clamp(this.targetY, -3000, 3000);
 
     // Subtle pitch/yaw parallax tilt
     this.targetPitch = clamp(-dy * 0.08, -12, 12);
@@ -229,7 +257,7 @@ export class CameraController {
     if (!coord) return;
     this.targetX = coord.x;
     this.targetY = coord.y;
-    this.targetZ = coord.z;
+    this.targetZ = clamp(coord.z, this.minZ, this.maxZ);
     this.targetPitch = 0;
     this.targetYaw = 0;
   }
@@ -324,6 +352,63 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     goldenMultiplier: currentGoldenMultiplier,
   });
 
+  // Calculate dynamic camera bounds based on chronological timeline depth
+  const deepestZ = photoCoords.length > 0 ? photoCoords[photoCoords.length - 1].z : -5000;
+  camera.setBounds(Math.min(-5000, deepestZ - 800), 350);
+
+  // Drag detection state (to separate camera panning from clicking a photo)
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let totalDragDist = 0;
+
+  // Active photo tracking & navigation helpers
+  let activeIndex = 0;
+  let lastReportedIdx = -1;
+
+  function findClosestIndex() {
+    let closestIdx = 0;
+    let minAbsDepth = Infinity;
+    for (let i = 0; i < photoCoords.length; i++) {
+      const d = Math.abs(camera.z - photoCoords[i].z);
+      if (d < minAbsDepth) {
+        minAbsDepth = d;
+        closestIdx = i;
+      }
+    }
+    return closestIdx;
+  }
+
+  function updateCounter() {
+    const idx = findClosestIndex();
+    if (idx === lastReportedIdx) return;
+    lastReportedIdx = idx;
+
+    if (counterEl && photoCoords.length > 0) {
+      counterEl.textContent = `${idx + 1} / ${photoCoords.length}`;
+    }
+    if (btnPrevPhoto) {
+      btnPrevPhoto.disabled = idx === 0;
+    }
+    if (btnNextPhoto) {
+      btnNextPhoto.disabled = idx >= photoCoords.length - 1;
+    }
+  }
+
+  function jumpToPhoto(delta) {
+    const currentIdx = findClosestIndex();
+    const nextIdx = clamp(currentIdx + delta, 0, photoCoords.length - 1);
+    jumpToIndex(nextIdx);
+  }
+
+  function jumpToIndex(idx) {
+    if (idx >= 0 && idx < photoCoords.length) {
+      activeIndex = idx;
+      camera.focusPhoto(photoCoords[activeIndex]);
+      updateCounter();
+    }
+  }
+
   // Render cards
   world.innerHTML = "";
   const cardElements = photoCoords.map((coord, i) => {
@@ -355,8 +440,18 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
     card.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (onSelectPhoto) {
-        onSelectPhoto(coord, i);
+      // If user dragged to pan, ignore click to prevent accidental modal popups
+      if (totalDragDist > 8) return;
+
+      // If photo is already in camera focal plane, open full inspection lightbox;
+      // otherwise, smoothly glide camera to focus on it so visitor walks directly to it
+      const distFromFocal = Math.abs(camera.z - coord.z);
+      if (distFromFocal < 350) {
+        if (onSelectPhoto) {
+          onSelectPhoto(coord, i);
+        }
+      } else {
+        jumpToIndex(i);
       }
     });
 
@@ -374,10 +469,10 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
     camera.update(dt);
 
-    // Apply transform to world
-    world.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, ${camera.z}px) rotateX(${camera.pitch}deg) rotateY(${camera.yaw}deg)`;
+    // Apply inverse camera transform to world so camera movement reveals the 3D scene
+    world.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, ${-camera.z}px) rotateX(${camera.pitch}deg) rotateY(${camera.yaw}deg)`;
 
-    // Update Depth of Field and Fog shaders for each photo card
+    // Update Depth of Field, grayscale fog, and pointer events for cards
     for (const item of cardElements) {
       const shader = calculateDepthShader(item.coord.z, camera.z);
       if (!shader.isVisible) {
@@ -385,6 +480,8 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
         continue;
       }
       item.el.style.display = "block";
+      // Prevent passed cards behind camera from capturing clicks or obstructing view
+      item.el.style.pointerEvents = shader.depth < 0 ? "none" : "auto";
       item.el.style.filter = `blur(${shader.blur}px) grayscale(${shader.grayscale}%)`;
       item.el.style.opacity = String(shader.opacity);
 
@@ -394,26 +491,26 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       }
     }
 
+    updateCounter();
+
     animationFrameId = requestAnimationFrame(tick);
   }
 
   animationFrameId = requestAnimationFrame(tick);
 
-  // Interaction handlers
-  let isDragging = false;
-  let startX = 0;
-  let startY = 0;
-
+  // Pointer panning & drag handling
   const onPointerDown = (e) => {
     isDragging = true;
     startX = e.clientX;
     startY = e.clientY;
+    totalDragDist = 0;
   };
 
   const onPointerMove = (e) => {
     if (!isDragging) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
+    totalDragDist += Math.hypot(dx, dy);
     startX = e.clientX;
     startY = e.clientY;
     camera.pan(dx * 1.2, dy * 1.2);
@@ -426,7 +523,9 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   // Wheel zoom / travel along Z timeline
   const onWheel = (e) => {
     e.preventDefault();
-    const delta = -e.deltaY * 1.6;
+    // Scrolling down (deltaY > 0) flies forward into negative Z (past photos)
+    // Scrolling up (deltaY < 0) flies backward into positive Z (entrance / newer photos)
+    const delta = -e.deltaY * 1.8;
     camera.flyZ(delta);
   };
 
@@ -436,6 +535,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     if (e.touches.length === 1) {
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
+      totalDragDist = 0;
       isDragging = true;
     } else if (e.touches.length === 2) {
       isDragging = false;
@@ -450,6 +550,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     if (e.touches.length === 1 && isDragging) {
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
+      totalDragDist += Math.hypot(dx, dy);
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       camera.pan(dx * 1.5, dy * 1.5);
@@ -460,7 +561,8 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       );
       const deltaDist = dist - touchStartDist;
       touchStartDist = dist;
-      camera.flyZ(deltaDist * 4);
+      // Spreading fingers (pinch-out / deltaDist > 0) flies forward into past photos (-Z)
+      camera.flyZ(-deltaDist * 4);
     }
   };
 
@@ -470,26 +572,31 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   };
 
   // Keyboard navigation
-  let activeIndex = 0;
   const onKeyDown = (e) => {
     if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
-    if (e.key === "w" || e.key === "ArrowUp") {
-      camera.flyZ(180);
-    } else if (e.key === "s" || e.key === "ArrowDown") {
-      camera.flyZ(-180);
-    } else if (e.key === "a" || e.key === "ArrowLeft") {
+    if (e.key === "w" || e.key === "W" || e.key === "ArrowUp") {
+      camera.flyZ(-220); // Walk forward down the line
+    } else if (e.key === "s" || e.key === "S" || e.key === "ArrowDown") {
+      camera.flyZ(220); // Walk backward toward entrance
+    } else if (e.key === "a" || e.key === "A" || e.key === "ArrowLeft") {
       camera.pan(80, 0);
-    } else if (e.key === "d" || e.key === "ArrowRight") {
+    } else if (e.key === "d" || e.key === "D" || e.key === "ArrowRight") {
       camera.pan(-80, 0);
+    } else if (e.key === "PageDown" || (e.key === " " && !e.shiftKey)) {
+      e.preventDefault();
+      camera.flyZ(-550); // Large step forward down the line
+    } else if (e.key === "PageUp" || (e.key === " " && e.shiftKey)) {
+      e.preventDefault();
+      camera.flyZ(550); // Large step backward
     } else if (e.key === "Home" || e.key === "0") {
       camera.reset();
-      activeIndex = 0;
+      jumpToIndex(0);
+    } else if (e.key === "End") {
+      jumpToIndex(photoCoords.length - 1);
     } else if (e.key === "[") {
-      activeIndex = Math.max(0, activeIndex - 1);
-      camera.focusPhoto(photoCoords[activeIndex]);
+      jumpToPhoto(-1); // Newer photo
     } else if (e.key === "]") {
-      activeIndex = Math.min(photoCoords.length - 1, activeIndex + 1);
-      camera.focusPhoto(photoCoords[activeIndex]);
+      jumpToPhoto(1); // Past photo down the line
     }
   };
 
@@ -504,13 +611,24 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
   // Wire HUD Controls
   const btnReset = document.getElementById("hud-reset-cam");
+  const btnPrevPhoto = document.getElementById("hud-prev-photo");
+  const btnNextPhoto = document.getElementById("hud-next-photo");
+  const counterEl = document.getElementById("hud-photo-counter");
   const selectPreset = document.getElementById("hud-preset-select");
   const sliderGolden = document.getElementById("hud-golden-scale");
   const btnFullscreen = document.getElementById("hud-fullscreen-btn");
 
   const onResetCam = () => {
     camera.reset();
-    activeIndex = 0;
+    jumpToIndex(0);
+  };
+
+  const onPrevPhoto = () => {
+    jumpToPhoto(-1);
+  };
+
+  const onNextPhoto = () => {
+    jumpToPhoto(1);
   };
 
   const onPresetChange = (e) => {
@@ -542,19 +660,28 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       preset: currentPreset,
       goldenMultiplier: currentGoldenMultiplier,
     });
+    const deepest = photoCoords.length > 0 ? photoCoords[photoCoords.length - 1].z : -5000;
+    camera.setBounds(Math.min(-5000, deepest - 800), 350);
+
     photoCoords.forEach((coord, i) => {
       if (cardElements[i]) {
         cardElements[i].coord = coord;
         cardElements[i].el.style.transform = `translate3d(${coord.x}px, ${coord.y}px, ${coord.z}px)`;
       }
     });
+    updateCounter();
   }
 
   btnReset?.addEventListener("click", onResetCam);
+  btnPrevPhoto?.addEventListener("click", onPrevPhoto);
+  btnNextPhoto?.addEventListener("click", onNextPhoto);
   selectPreset?.addEventListener("change", onPresetChange);
   sliderGolden?.addEventListener("input", onGoldenChange);
   btnFullscreen?.addEventListener("click", onToggleFullscreen);
   document.addEventListener("fullscreenchange", onFullscreenChange);
+
+  // Initial counter state
+  updateCounter();
 
   // Return teardown function
   return () => {
@@ -569,6 +696,8 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     window.removeEventListener("keydown", onKeyDown);
 
     btnReset?.removeEventListener("click", onResetCam);
+    btnPrevPhoto?.removeEventListener("click", onPrevPhoto);
+    btnNextPhoto?.removeEventListener("click", onNextPhoto);
     selectPreset?.removeEventListener("change", onPresetChange);
     sliderGolden?.removeEventListener("input", onGoldenChange);
     btnFullscreen?.removeEventListener("click", onToggleFullscreen);

@@ -1353,6 +1353,30 @@ body:has(#spatial-viewport) footer {
   accent-color: var(--accent);
 }
 
+.hud-pill button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.hud-step-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.hud-counter {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.75);
+  font-variant-numeric: tabular-nums;
+  padding: 0 0.25rem;
+  white-space: nowrap;
+}
+
+.hud-step-label-short {
+  display: none;
+}
+
 @media (max-width: 680px) {
   .spatial-viewport {
     height: 100vh;
@@ -1373,6 +1397,19 @@ body:has(#spatial-viewport) footer {
     gap: 0.4rem;
     padding: 0.35rem 0.75rem;
     font-size: 0.75rem;
+  }
+  .hud-step-group {
+    gap: 0.2rem;
+  }
+  .hud-step-label-full {
+    display: none;
+  }
+  .hud-step-label-short {
+    display: inline;
+  }
+  .hud-counter {
+    font-size: 0.75rem;
+    padding: 0 0.15rem;
   }
   .hud-select-label span, .hud-slider-label span {
     display: none;
