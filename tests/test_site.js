@@ -1150,6 +1150,61 @@ test("Spatial Timeline Navigation: HTML and CSS support stepper buttons, counter
   assert.ok(spatialJs.includes("${-camera.z}px"), "spatial.js world transform must use inverse camera Z (${-camera.z}px)");
 });
 
+test("Spatial Exit Transition: calculateDepthShader computes exitProgress for exiting foreground frames", async () => {
+  const { calculateDepthShader } = await import("../site/spatial.js");
+
+  // In focal plane (depth = 0): exitProgress must be 0
+  const focal = calculateDepthShader(-500, -500);
+  assert.equal(focal.exitProgress, 0);
+
+  // Deeper in the catalog (depth > 0): exitProgress must be 0
+  const upcoming = calculateDepthShader(-800, -500);
+  assert.equal(upcoming.exitProgress, 0);
+
+  // Exiting foreground behind camera (depth = -100): exitProgress between 0 and 1
+  const exiting = calculateDepthShader(-400, -500);
+  assert.ok(exiting.exitProgress > 0 && exiting.exitProgress < 1, "exitProgress must be between 0 and 1 for exiting frames");
+
+  // Fully passed (depth = -350): exitProgress must be 1 and isVisible false
+  const passed = calculateDepthShader(-150, -500);
+  assert.equal(passed.exitProgress, 1);
+  assert.equal(passed.isVisible, false);
+});
+
+test("Spatial Exit Transition: calculateExitDisplacement moves exiting frames to viewport edges", async () => {
+  const { calculateExitDisplacement } = await import("../site/spatial.js");
+
+  const coord = { x: 0, y: 0, z: 0, index: 0 };
+  const vp = { width: 1200, height: 800 };
+
+  // At exitProgress = 0, no displacement
+  const zeroDisp = calculateExitDisplacement(coord, 0, vp);
+  assert.equal(zeroDisp.offsetX, 0);
+  assert.equal(zeroDisp.offsetY, 0);
+  assert.equal(zeroDisp.rotateY, 0);
+  assert.equal(zeroDisp.rotateZ, 0);
+
+  // At exitProgress = 1.0, frame moves to edge (offsetX >= 650px) to clear the center
+  const fullDisp = calculateExitDisplacement(coord, 1.0, vp);
+  assert.ok(Math.abs(fullDisp.offsetX) >= 650, `offsetX ${fullDisp.offsetX} must move frame to edge (>= 650px)`);
+  assert.ok(fullDisp.rotateY !== 0, "must include 3D yaw rotation");
+  assert.ok(fullDisp.rotateZ !== 0, "must include 3D roll rotation");
+
+  // Alternating side for adjacent index or left/right coordinates
+  const leftCoord = { x: -100, y: 0, z: 0, index: 1 };
+  const leftDisp = calculateExitDisplacement(leftCoord, 1.0, vp);
+  assert.ok(leftDisp.offsetX < 0, "left-positioned photo must exit toward the left edge");
+});
+
+test("Spatial CSS: latest photo frame avoids static z-index 10 override", () => {
+  const stylesCss = fs.readFileSync(new URL("../site/styles.css", import.meta.url), "utf8");
+  // Ensure .photo-frame-latest does not hardcode z-index: 10
+  const match = stylesCss.match(/\.photo-card-3d\.photo-frame-latest\s*\{([^}]+)\}/);
+  assert.ok(match, "must have .photo-card-3d.photo-frame-latest rule");
+  assert.ok(!match[1].includes("z-index: 10"), ".photo-frame-latest must not have static z-index: 10");
+});
+
+
 
 
 

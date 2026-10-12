@@ -140,9 +140,10 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
   const depth = cameraZ - photoZ;
   const maxHorizon = options.maxHorizon || 3500;
   const focalRange = options.focalRange || 300;
+  const exitRange = options.exitRange || 280;
 
   // If photo is far behind camera or beyond max horizon
-  if (depth < -250 || depth > maxHorizon) {
+  if (depth < -exitRange || depth > maxHorizon) {
     return {
       blur: 16,
       grayscale: 100,
@@ -150,13 +151,15 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
       isVisible: false,
       tier: "thumb",
       depth,
+      exitProgress: depth < 0 ? 1 : 0,
     };
   }
 
-  // Photo is behind camera focal plane (-250 <= depth < 0):
+  // Photo is behind camera focal plane (-exitRange <= depth < 0):
   // Gracefully fade out so it doesn't obstruct view or clicks
   if (depth < 0) {
-    const fade = clamp((depth + 250) / 250, 0, 1);
+    const fade = clamp((depth + exitRange) / exitRange, 0, 1);
+    const exitProgress = clamp(-depth / exitRange, 0, 1);
     return {
       blur: Math.round((1 - fade) * 4 * 10) / 10,
       grayscale: Math.round((1 - fade) * 40),
@@ -164,6 +167,7 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
       isVisible: fade > 0.02,
       tier: "display",
       depth,
+      exitProgress,
     };
   }
 
@@ -177,6 +181,7 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
       isVisible: true,
       tier: "display",
       depth,
+      exitProgress: 0,
     };
   }
 
@@ -200,7 +205,48 @@ export function calculateDepthShader(photoZ, cameraZ, options = {}) {
     isVisible: true,
     tier: "thumb",
     depth,
+    exitProgress: 0,
   };
+}
+
+/**
+ * Calculates outward lateral and angular displacement for foreground frames exiting view.
+ * As frames pass behind the focal plane (depth < 0), this moves them toward the edges of the viewport
+ * to clear the line of sight for incoming frames.
+ * 
+ * @param {Object} coord - Photo coordinate object with x, y, z, index
+ * @param {number} exitProgress - Value from 0 (at focal plane) to 1 (fully exited)
+ * @param {Object} [viewport] - Optional viewport dimensions { width, height }
+ * @returns {{ offsetX: number, offsetY: number, rotateY: number, rotateZ: number }}
+ */
+export function calculateExitDisplacement(coord, exitProgress, viewport = {}) {
+  if (!coord || !exitProgress || exitProgress <= 0) {
+    return { offsetX: 0, offsetY: 0, rotateY: 0, rotateZ: 0 };
+  }
+
+  const p = clamp(exitProgress, 0, 1);
+  // Smoothstep easing (C1 continuous): zero start-jerk, zero end-jerk
+  const ease = p * p * (3 - 2 * p);
+
+  const vpWidth = (viewport && viewport.width) || 1200;
+
+  // Determine which side of the viewport to exit toward:
+  // If photo is already off-center (|x| > 20), exit toward that side;
+  // otherwise, alternate side based on photo index (even -> right, odd -> left).
+  const side = Math.abs(coord.x || 0) > 20
+    ? Math.sign(coord.x)
+    : ((coord.index || 0) % 2 === 0 ? 1 : -1);
+
+  // Distance needed to clear the central viewport: half viewport + margin
+  const edgeDistX = Math.max(650, vpWidth * 0.55);
+  const offsetX = Math.round(side * edgeDistX * ease);
+
+  // Subtle natural arc: vertical drift and card rotation
+  const offsetY = Math.round(((coord.index || 0) % 3 === 0 ? -1 : 1) * 60 * ease);
+  const rotateY = Math.round(side * -22 * ease);
+  const rotateZ = Math.round(side * 12 * ease);
+
+  return { offsetX, offsetY, rotateY, rotateZ };
 }
 
 /**
@@ -456,7 +502,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     });
 
     world.appendChild(card);
-    return { el: card, img, coord };
+    return { el: card, img, coord, wasExiting: false };
   });
 
   // Camera animation loop
@@ -472,7 +518,13 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     // Apply inverse camera transform to world so camera movement reveals the 3D scene
     world.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, ${-camera.z}px) rotateX(${camera.pitch}deg) rotateY(${camera.yaw}deg)`;
 
-    // Update Depth of Field, grayscale fog, and pointer events for cards
+    // Viewport dimensions for calculating responsive edge dispersion
+    const vpDims = {
+      width: viewport.clientWidth || window.innerWidth || 1200,
+      height: viewport.clientHeight || window.innerHeight || 800,
+    };
+
+    // Update Depth of Field, grayscale fog, pointer events, and exit displacement for cards
     for (const item of cardElements) {
       const shader = calculateDepthShader(item.coord.z, camera.z);
       if (!shader.isVisible) {
@@ -484,6 +536,18 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       item.el.style.pointerEvents = shader.depth < 0 ? "none" : "auto";
       item.el.style.filter = `blur(${shader.blur}px) grayscale(${shader.grayscale}%)`;
       item.el.style.opacity = String(shader.opacity);
+
+      // Foreground frames exiting view: disperse outward to viewport edges
+      if (shader.exitProgress > 0) {
+        const disp = calculateExitDisplacement(item.coord, shader.exitProgress, vpDims);
+        item.el.style.transform = `translate3d(${item.coord.x + disp.offsetX}px, ${item.coord.y + disp.offsetY}px, ${item.coord.z}px) rotateY(${disp.rotateY}deg) rotateZ(${disp.rotateZ}deg)`;
+        item.el.style.zIndex = "0";
+        item.wasExiting = true;
+      } else if (item.wasExiting) {
+        item.el.style.transform = `translate3d(${item.coord.x}px, ${item.coord.y}px, ${item.coord.z}px)`;
+        item.el.style.zIndex = "";
+        item.wasExiting = false;
+      }
 
       // Promote image tier when camera is near
       if (shader.tier === "display" && item.img.src !== (item.coord.url || item.coord.thumb)) {
@@ -666,7 +730,9 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     photoCoords.forEach((coord, i) => {
       if (cardElements[i]) {
         cardElements[i].coord = coord;
+        cardElements[i].wasExiting = false;
         cardElements[i].el.style.transform = `translate3d(${coord.x}px, ${coord.y}px, ${coord.z}px)`;
+        cardElements[i].el.style.zIndex = "";
       }
     });
     updateCounter();
