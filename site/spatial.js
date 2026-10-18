@@ -35,6 +35,49 @@ function esc(str) {
     .replace(/'/g, "&#39;");
 }
 
+export const DEPTH_COMPRESSION = 0.6;
+export const PERSPECTIVE_PX = 1000;
+
+/**
+ * Fan displacement: cards whose projected screen position is near the pointer (mouse or finger)
+ * spread radially away from it and lift toward the camera, so cards behind others can be reached.
+ * A card directly under the pointer does not flee laterally (it stays clickable) but comes forward.
+ *
+ * @param {{x:number,y:number,z:number}} coord
+ * @param {{x:number,y:number,z:number}} cam
+ * @param {{x:number,y:number}|null} pointer - px offset from viewport center
+ * @returns {{dx:number, dy:number, dz:number}} world-space offsets
+ */
+export function calculateFanDisplacement(coord, cam, pointer, viewport = {}, options = {}) {
+  const zero = { dx: 0, dy: 0, dz: 0 };
+  if (!coord || !cam || !pointer) return zero;
+  const radius = options.radius || 260;
+  const strength = options.strength || 190;
+  const lift = options.lift || 160;
+
+  const depth = cam.z - coord.z;
+  if (depth <= -PERSPECTIVE_PX * 0.5) return zero;
+  const scale = PERSPECTIVE_PX / (PERSPECTIVE_PX + Math.max(depth, -PERSPECTIVE_PX * 0.5));
+  const sx = (coord.x - cam.x) * scale;
+  const sy = (coord.y - cam.y) * scale;
+  const vx = sx - pointer.x;
+  const vy = sy - pointer.y;
+  const dist = Math.hypot(vx, vy);
+  if (dist >= radius) return zero;
+
+  const t = dist / radius; // 0 under pointer .. 1 at edge
+  const dz = Math.round(lift * (1 - t) * (1 - t));
+  if (dist < 1) return { dx: 0, dy: 0, dz };
+
+  const push = strength * Math.sin(Math.PI * t) / scale; // screen px -> world units
+  const capped = Math.min(push, 700);
+  return {
+    dx: Math.round((vx / dist) * capped),
+    dy: Math.round((vy / dist) * capped),
+    dz,
+  };
+}
+
 /**
  * Maps photos to 3D spatial coordinates based on timestamps and golden ratio scaling.
  * 
@@ -90,7 +133,8 @@ export function calculatePhotoCoordinates(photos, options = {}) {
 
     // Closer times have shorter delta-Z: power scale (deltaDays)^0.75
     // so recent days cluster nicely while deeper history recedes gracefully
-    const zDepth = -(Math.pow(deltaDays, 0.75) * sz * scaleZ * 0.15 + (index * sz * 0.25));
+    // DEPTH_COMPRESSION pulls the back of the timeline closer so deep photos are easier to reach
+    const zDepth = -(Math.pow(deltaDays, 0.75) * sz * scaleZ * 0.15 + (index * sz * 0.25)) * DEPTH_COMPRESSION;
 
     let x = 0;
     let y = 0;
@@ -430,6 +474,16 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   const deepestZ = photoCoords.length > 0 ? photoCoords[photoCoords.length - 1].z : -5000;
   camera.setBounds(Math.min(-5000, deepestZ - 800), 350);
 
+  // Pointer (mouse hover or finger) position relative to viewport center; null when idle
+  let fanPointer = null;
+  const setFanPointer = (clientX, clientY) => {
+    const rect = viewport.getBoundingClientRect ? viewport.getBoundingClientRect() : { left: 0, top: 0, width: 1200, height: 800 };
+    fanPointer = {
+      x: clientX - (rect.left + (rect.width || 1200) / 2),
+      y: clientY - (rect.top + (rect.height || 800) / 2),
+    };
+  };
+
   // Drag detection state (to separate camera panning from clicking a photo)
   let isPointerDown = false;
   let hasDragged = false;
@@ -559,7 +613,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     });
 
     world.appendChild(card);
-    return { el: card, img, coord, wasExiting: false };
+    return { el: card, img, coord, wasExiting: false, fan: { dx: 0, dy: 0, dz: 0 } };
   });
 
   // Camera animation loop
@@ -598,12 +652,27 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       item.el.style.filter = `blur(${shader.blur}px) grayscale(${shader.grayscale}%)`;
       item.el.style.opacity = String(shader.opacity);
 
+      // Smoothed fan displacement around the pointer / finger (exiting cards are not fanned)
+      const target = shader.exitProgress > 0
+        ? { dx: 0, dy: 0, dz: 0 }
+        : calculateFanDisplacement(item.coord, camera, fanPointer, vpDims);
+      const f = item.fan;
+      const k = 0.25;
+      f.dx += (target.dx - f.dx) * k;
+      f.dy += (target.dy - f.dy) * k;
+      f.dz += (target.dz - f.dz) * k;
+      const settled = Math.abs(f.dx) < 0.5 && Math.abs(f.dy) < 0.5 && Math.abs(f.dz) < 0.5;
+      if (settled) { f.dx = 0; f.dy = 0; f.dz = 0; }
+
       // Foreground frames exiting view: disperse outward to viewport edges
       if (shader.exitProgress > 0) {
         const disp = calculateExitDisplacement(item.coord, shader.exitProgress, vpDims);
         item.el.style.transform = `translate3d(${item.coord.x + disp.offsetX}px, ${item.coord.y + disp.offsetY}px, ${item.coord.z}px) rotateY(${disp.rotateY}deg) rotateZ(${disp.rotateZ}deg)`;
         item.el.style.zIndex = "0";
         item.wasExiting = true;
+      } else if (!settled) {
+        item.el.style.transform = `translate3d(${item.coord.x + f.dx}px, ${item.coord.y + f.dy}px, ${item.coord.z + f.dz}px)`;
+        item.wasExiting = true; // flag so the resting transform is restored once settled
       } else if (item.wasExiting) {
         item.el.style.transform = `translate3d(${item.coord.x}px, ${item.coord.y}px, ${item.coord.z}px)`;
         item.el.style.zIndex = "";
@@ -637,7 +706,19 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     totalDragDist = 0;
   };
 
+  const onPointerLeave = () => {
+    fanPointer = null;
+  };
+
   const onPointerMove = (e) => {
+    if (e.target && viewport.contains && !viewport.contains(e.target)) {
+      fanPointer = null;
+    } else if (!isPointerDown || !hasDragged) {
+      // Mouse roaming (or a stationary finger): fan cards around the pointer
+      setFanPointer(e.clientX, e.clientY);
+    } else {
+      fanPointer = null; // panning: keep the scene calm
+    }
     if (!isPointerDown) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
@@ -689,6 +770,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
       totalDragDist = 0;
+      setFanPointer(startX, startY);
     } else if (e.touches.length === 2) {
       isPointerDown = false;
       hasDragged = true;
@@ -701,6 +783,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
   const onTouchMove = (e) => {
     if (e.touches.length === 1 && isPointerDown) {
+      if (!hasDragged) setFanPointer(e.touches[0].clientX, e.touches[0].clientY);
       const dx = e.touches[0].clientX - startX;
       const dy = e.touches[0].clientY - startY;
       const dist = Math.hypot(dx, dy);
@@ -728,6 +811,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
   const onTouchEnd = () => {
     isPointerDown = false;
+    fanPointer = null;
     touchStartDist = 0;
     dragResetTimer = setTimeout(() => {
       hasDragged = false;
@@ -766,6 +850,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   };
 
   viewport.addEventListener("pointerdown", onPointerDown);
+  viewport.addEventListener("pointerleave", onPointerLeave);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
   viewport.addEventListener("wheel", onWheel, { passive: false });
@@ -855,6 +940,7 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if (dragResetTimer) clearTimeout(dragResetTimer);
     viewport.removeEventListener("pointerdown", onPointerDown);
+    viewport.removeEventListener("pointerleave", onPointerLeave);
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
     viewport.removeEventListener("wheel", onWheel);

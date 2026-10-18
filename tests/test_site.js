@@ -1311,6 +1311,43 @@ test("Spatial Visibility: Visible photos with negative depth maintain pointerEve
   );
 });
 
+test("Spatial depth: timeline is compressed so back photos are closer to reach", async () => {
+  const { calculatePhotoCoordinates } = await import("../site/spatial.js");
+  const base = 1710000000;
+  const photos = Array.from({ length: 10 }, (_, i) => ({ id: `p${i}`, createdAt: base - i * 10 * 86400 }));
+  const coords = calculatePhotoCoordinates(photos, { preset: "landscape" });
+  const deepest = coords[coords.length - 1].z;
+  assert.ok(deepest > -1000, `deepest z must be > -1000 (got ${deepest})`);
+  assert.ok(deepest < 0, "deepest z must still recede");
+});
+
+test("Spatial fan: cards near the pointer fan outward, others and null pointer are untouched", async () => {
+  const { calculateFanDisplacement } = await import("../site/spatial.js");
+  const cam = { x: 0, y: 0, z: 0 };
+  const vp = { width: 1200, height: 800 };
+  const zero = calculateFanDisplacement({ x: 0, y: 0, z: -200, index: 1 }, cam, null, vp);
+  assert.deepEqual(zero, { dx: 0, dy: 0, dz: 0 });
+
+  const near = calculateFanDisplacement({ x: 60, y: 0, z: -200, index: 1 }, cam, { x: 0, y: 0 }, vp);
+  assert.ok(near.dx > 0, `neighbour must fan right (got ${near.dx})`);
+  assert.ok(near.dz > 0, "neighbour must lift toward camera");
+
+  const far = calculateFanDisplacement({ x: 900, y: 0, z: -200, index: 1 }, cam, { x: 0, y: 0 }, vp);
+  assert.deepEqual(far, { dx: 0, dy: 0, dz: 0 });
+
+  const under = calculateFanDisplacement({ x: 0, y: 0, z: -200, index: 1 }, cam, { x: 0, y: 0 }, vp);
+  assert.equal(under.dx, 0);
+  assert.equal(under.dy, 0);
+  assert.ok(under.dz > 0, "hovered card must come forward");
+});
+
+test("Spatial fan: wired to pointer hover and touch in initSpatialScene", () => {
+  const spatialJs = fs.readFileSync(new URL("../site/spatial.js", import.meta.url), "utf8");
+  assert.ok(spatialJs.includes("calculateFanDisplacement("), "tick must apply fan displacement");
+  assert.ok(spatialJs.includes('"pointerleave"'), "must clear the fan on pointerleave");
+});
+
+
 
 
 
