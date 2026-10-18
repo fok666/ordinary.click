@@ -294,10 +294,11 @@ export function calculateExitDisplacement(coord, exitProgress, viewport = {}) {
   }
 
   const p = clamp(exitProgress, 0, 1);
-  // Smoothstep easing (C1 continuous): zero start-jerk, zero end-jerk
-  const ease = p * p * (3 - 2 * p);
+  // Ease-out cubic: frames leave the focal center quickly so they never block what is coming into focus
+  const ease = 1 - Math.pow(1 - p, 3);
 
   const vpWidth = (viewport && viewport.width) || 1200;
+  const vpHeight = (viewport && viewport.height) || 800;
   const idx = Number(coord.index) || 0;
 
   // Symmetrical bilateral distribution:
@@ -309,12 +310,13 @@ export function calculateExitDisplacement(coord, exitProgress, viewport = {}) {
   // Alternate upward drift vs downward drift (4-quadrant dispersal)
   const vertSide = (idx % 4 === 0 || idx % 4 === 1) ? -1 : 1;
 
-  // Distance needed to clear the central viewport: half viewport + margin
-  const edgeDistX = Math.max(650, vpWidth * 0.55);
+  // Distance needed to clear the central viewport: half viewport + a card's width of margin.
+  // Scales with screen size, with a floor so small screens still fully clear the center.
+  const edgeDistX = Math.max(470, vpWidth * 0.5 + 200);
   const offsetX = Math.round(side * edgeDistX * ease);
 
-  // Subtle natural arc: vertical drift and card rotation
-  const offsetY = Math.round(vertSide * 65 * ease);
+  // Subtle natural arc: vertical drift (scaled to viewport height) and card rotation
+  const offsetY = Math.round(vertSide * Math.max(65, vpHeight * 0.12) * ease);
   const rotateY = Math.round(side * -22 * ease);
   const rotateZ = Math.round(side * 12 * ease);
 

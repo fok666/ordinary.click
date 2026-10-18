@@ -1216,6 +1216,30 @@ test("Spatial Exit Transition: calculateExitDisplacement moves exiting frames to
   assert.equal(bottomCount, 10, `exactly 10 photos must drift downward (got ${bottomCount})`);
 });
 
+test("Spatial Exit Transition: exiting frames clear the center early and scale with viewport", async () => {
+  const { calculateExitDisplacement } = await import("../site/spatial.js");
+  const coord = { x: 0, y: 0, z: 0, index: 0 };
+
+  // Early in the exit (25%) the frame must already be well clear of the focal center
+  const early = calculateExitDisplacement(coord, 0.25, { width: 1200, height: 800 });
+  assert.ok(Math.abs(early.offsetX) >= 300, `offsetX at 25% must be >= 300 (got ${early.offsetX})`);
+
+  // Small screens: still clears half the viewport plus margin, without flinging absurdly far
+  const small = calculateExitDisplacement(coord, 1.0, { width: 390, height: 700 });
+  assert.ok(Math.abs(small.offsetX) >= 390 / 2 + 150, `small-screen offsetX must clear half width + margin (got ${small.offsetX})`);
+  assert.ok(Math.abs(small.offsetX) <= 700, `small-screen offsetX must stay bounded (got ${small.offsetX})`);
+
+  // Wide screens: full exit clears half the width plus a card
+  const wide = calculateExitDisplacement(coord, 1.0, { width: 1920, height: 1080 });
+  assert.ok(Math.abs(wide.offsetX) >= 1920 / 2 + 160, `wide offsetX must clear half width + card (got ${wide.offsetX})`);
+
+  // Vertical drift grows with viewport height
+  const tall = calculateExitDisplacement(coord, 1.0, { width: 1200, height: 1400 });
+  const short = calculateExitDisplacement(coord, 1.0, { width: 1200, height: 500 });
+  assert.ok(Math.abs(tall.offsetY) > Math.abs(short.offsetY), "vertical drift must scale with viewport height");
+});
+
+
 test("Spatial Landscape Valley: spreads photos across X, Y, and Z instead of 1D stacking", async () => {
   const { calculatePhotoCoordinates } = await import("../site/spatial.js");
 
