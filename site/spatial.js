@@ -39,6 +39,39 @@ export const DEPTH_COMPRESSION = 0.6;
 export const PERSPECTIVE_PX = 1000;
 
 /**
+ * Rendering budget by device class. Phones/touch screens drop blur filters (GPU heavy),
+ * draw fewer cards, a shorter distance and keep few full-size images decoded.
+ */
+export function getPerformanceProfile(viewport = {}, env = {}) {
+  const width = (viewport && viewport.width) || 1200;
+  const light = width <= 820 || !!env.coarsePointer;
+  return light
+    ? { blur: false, maxVisible: 16, maxDisplayImages: 3, maxHorizon: 2200 }
+    : { blur: true, maxVisible: 60, maxDisplayImages: 8, maxHorizon: 3500 };
+}
+
+/**
+ * Contiguous index window of live cards around the focused index (cards are depth-ordered).
+ */
+export function selectRenderWindow(count, focusIdx, maxVisible) {
+  if (count <= maxVisible) return { start: 0, end: Math.max(0, count - 1) };
+  const before = Math.floor(maxVisible / 4);
+  const start = clamp(focusIdx - before, 0, count - maxVisible);
+  return { start, end: start + maxVisible - 1 };
+}
+
+/**
+ * Quantised CSS filter: stepped values change rarely, so the browser does not re-rasterise every frame.
+ */
+export function quantizeFilter(shader, useBlur) {
+  if (!useBlur) return "none";
+  const blur = Math.round(shader.blur * 2) / 2;
+  const gray = Math.round(shader.grayscale / 5) * 5;
+  if (blur === 0 && gray === 0) return "none";
+  return `blur(${blur}px) grayscale(${gray}%)`;
+}
+
+/**
  * Fan displacement: cards whose projected screen position is near the pointer (mouse or finger)
  * spread radially away from it and lift toward the camera, so cards behind others can be reached.
  * A card directly under the pointer does not flee laterally (it stays clickable) but comes forward.
@@ -294,8 +327,9 @@ export function calculateExitDisplacement(coord, exitProgress, viewport = {}) {
   }
 
   const p = clamp(exitProgress, 0, 1);
-  // Ease-out cubic: frames leave the focal center quickly so they never block what is coming into focus
-  const ease = 1 - Math.pow(1 - p, 3);
+  // Ease-out quad: leaves the focal center quickly (so it never blocks incoming frames) yet
+  // keeps a gentle initial slope, avoiding the visible snap a cubic produces
+  const ease = 1 - Math.pow(1 - p, 2);
 
   const vpWidth = (viewport && viewport.width) || 1200;
   const vpHeight = (viewport && viewport.height) || 800;
@@ -621,6 +655,8 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
   // Camera animation loop
   let animationFrameId = null;
   let lastTime = performance.now();
+  let lastOrigin = "";
+  let lastWorldTf = "";
 
   function tick(now) {
     const dt = Math.min(50, now - lastTime);
@@ -630,29 +666,69 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
 
     // Dynamic rotation pivot point: shifts down the timeline along with camera X/Y/Z
     // so rotating pitches/yaws around where the visitor is currently looking instead of swinging around Z=0
-    world.style.transformOrigin = `${camera.x}px ${camera.y}px ${camera.z}px`;
-    world.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, ${-camera.z}px) rotateX(${camera.pitch}deg) rotateY(${camera.yaw}deg)`;
+    // (writes skipped unless the 0.1-unit-rounded pose changed: avoids sub-pixel shimmer and needless restyles)
+    const r1 = (v) => Math.round(v * 10) / 10;
+    const poseKey = `${r1(camera.x)}|${r1(camera.y)}|${r1(camera.z)}|${r1(camera.pitch)}|${r1(camera.yaw)}`;
+    if (poseKey !== lastOrigin) {
+      world.style.transformOrigin = `${camera.x}px ${camera.y}px ${camera.z}px`;
+      world.style.transform = `translate3d(${-camera.x}px, ${-camera.y}px, ${-camera.z}px) rotateX(${camera.pitch}deg) rotateY(${camera.yaw}deg)`;
+      lastOrigin = poseKey;
+    }
 
     // Viewport dimensions for calculating responsive edge dispersion
     const vpDims = {
       width: viewport.clientWidth || window.innerWidth || 1200,
       height: viewport.clientHeight || window.innerHeight || 800,
     };
+    const profile = getPerformanceProfile(vpDims, {
+      coarsePointer: typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)")?.matches,
+    });
+
+    // Only a bounded window of cards around the focus stays live (keeps GPU/memory use flat)
+    const closest = findClosestIndex();
+    const win = selectRenderWindow(cardElements.length, closest, profile.maxVisible);
+    const imgRadius = Math.floor(profile.maxDisplayImages / 2);
 
     // Update Depth of Field, grayscale fog, pointer events, and exit displacement for cards
-    for (const item of cardElements) {
-      const shader = calculateDepthShader(item.coord.z, camera.z);
+    for (let idx = 0; idx < cardElements.length; idx++) {
+      const item = cardElements[idx];
+      const thumbSrc = item.coord.thumb || item.coord.url;
+      const inWindow = idx >= win.start && idx <= win.end;
+      const shader = inWindow
+        ? calculateDepthShader(item.coord.z, camera.z, { maxHorizon: profile.maxHorizon })
+        : { isVisible: false };
       if (!shader.isVisible) {
-        item.el.style.display = "none";
+        if (item.lastDisplay !== "none") {
+          item.el.style.display = "none";
+          item.lastDisplay = "none";
+          // Release full-size decoded image when the card leaves the live window
+          if (item.img.src !== thumbSrc && item.img.getAttribute("src") !== thumbSrc) {
+            item.img.src = thumbSrc;
+          }
+        }
         continue;
       }
-      item.el.style.display = "block";
+      if (item.lastDisplay !== "block") {
+        item.el.style.display = "block";
+        item.lastDisplay = "block";
+      }
       // Maintain pointerEvents for visible cards (including in focal hold and exiting frames)
-      // Only disable pointerEvents if card is fully culled or transparent
-      const isCardClickable = shader.isVisible && shader.opacity > 0.05 && shader.exitProgress < 1;
-      item.el.style.pointerEvents = isCardClickable ? "auto" : "none";
-      item.el.style.filter = `blur(${shader.blur}px) grayscale(${shader.grayscale}%)`;
-      item.el.style.opacity = String(shader.opacity);
+      const isCardClickable = shader.opacity > 0.05 && shader.exitProgress < 1;
+      const pe = isCardClickable ? "auto" : "none";
+      if (pe !== item.lastPE) {
+        item.el.style.pointerEvents = pe;
+        item.lastPE = pe;
+      }
+      const filter = quantizeFilter(shader, profile.blur);
+      if (filter !== item.lastFilter) {
+        item.el.style.filter = filter;
+        item.lastFilter = filter;
+      }
+      const opacity = String(Math.round(shader.opacity * 20) / 20);
+      if (opacity !== item.lastOpacity) {
+        item.el.style.opacity = opacity;
+        item.lastOpacity = opacity;
+      }
 
       // Smoothed fan displacement around the pointer / finger (exiting cards are not fanned)
       const target = shader.exitProgress > 0
@@ -666,24 +742,31 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
       const settled = Math.abs(f.dx) < 0.5 && Math.abs(f.dy) < 0.5 && Math.abs(f.dz) < 0.5;
       if (settled) { f.dx = 0; f.dy = 0; f.dz = 0; }
 
-      // Foreground frames exiting view: disperse outward to viewport edges
+      let tf = null;
       if (shader.exitProgress > 0) {
+        // Foreground frames exiting view: disperse outward to viewport edges
         const disp = calculateExitDisplacement(item.coord, shader.exitProgress, vpDims);
-        item.el.style.transform = `translate3d(${item.coord.x + disp.offsetX}px, ${item.coord.y + disp.offsetY}px, ${item.coord.z}px) rotateY(${disp.rotateY}deg) rotateZ(${disp.rotateZ}deg)`;
-        item.el.style.zIndex = "0";
+        tf = `translate3d(${item.coord.x + disp.offsetX}px, ${item.coord.y + disp.offsetY}px, ${item.coord.z}px) rotateY(${disp.rotateY}deg) rotateZ(${disp.rotateZ}deg)`;
+        if (item.lastZIndex !== "0") { item.el.style.zIndex = "0"; item.lastZIndex = "0"; }
         item.wasExiting = true;
-      } else if (!settled) {
-        item.el.style.transform = `translate3d(${item.coord.x + f.dx}px, ${item.coord.y + f.dy}px, ${item.coord.z + f.dz}px)`;
-        item.wasExiting = true; // flag so the resting transform is restored once settled
-      } else if (item.wasExiting) {
-        item.el.style.transform = `translate3d(${item.coord.x}px, ${item.coord.y}px, ${item.coord.z}px)`;
-        item.el.style.zIndex = "";
+      } else {
+        tf = settled
+          ? `translate3d(${item.coord.x}px, ${item.coord.y}px, ${item.coord.z}px)`
+          : `translate3d(${r1(item.coord.x + f.dx)}px, ${r1(item.coord.y + f.dy)}px, ${r1(item.coord.z + f.dz)}px)`;
+        if (item.lastZIndex !== "") { item.el.style.zIndex = ""; item.lastZIndex = ""; }
         item.wasExiting = false;
       }
+      if (tf !== item.lastTransform) {
+        item.el.style.transform = tf;
+        item.lastTransform = tf;
+      }
 
-      // Promote image tier when camera is near
-      if (shader.tier === "display" && item.img.src !== (item.coord.url || item.coord.thumb)) {
-        item.img.src = item.coord.url || item.coord.thumb;
+      // Full-size image only for the few cards nearest the focus; everything else stays a thumbnail
+      const fullSrc = item.coord.url || item.coord.thumb;
+      const wantFull = shader.tier === "display" && Math.abs(idx - closest) <= imgRadius;
+      const wantSrc = wantFull ? fullSrc : thumbSrc;
+      if (item.img.getAttribute("src") !== wantSrc) {
+        item.img.src = wantSrc;
       }
     }
 
@@ -920,7 +1003,9 @@ export function initSpatialScene(viewport, rawPhotos, options = {}, onSelectPhot
         cardElements[i].coord = coord;
         cardElements[i].wasExiting = false;
         cardElements[i].el.style.transform = `translate3d(${coord.x}px, ${coord.y}px, ${coord.z}px)`;
+        cardElements[i].lastTransform = null; // force the render loop to resync cached style state
         cardElements[i].el.style.zIndex = "";
+        cardElements[i].lastZIndex = "";
       }
     });
     updateCounter();

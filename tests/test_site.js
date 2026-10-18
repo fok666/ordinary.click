@@ -1371,6 +1371,47 @@ test("Spatial fan: wired to pointer hover and touch in initSpatialScene", () => 
   assert.ok(spatialJs.includes('"pointerleave"'), "must clear the fan on pointerleave");
 });
 
+test("Spatial perf: profile is lighter on small/touch screens", async () => {
+  const { getPerformanceProfile } = await import("../site/spatial.js");
+  const phone = getPerformanceProfile({ width: 390, height: 800 }, { coarsePointer: true });
+  const desk = getPerformanceProfile({ width: 1600, height: 900 }, { coarsePointer: false });
+  assert.equal(phone.blur, false, "no per-card blur filters on phones");
+  assert.equal(desk.blur, true);
+  assert.ok(phone.maxVisible < desk.maxVisible, "phones render fewer cards");
+  assert.ok(phone.maxDisplayImages <= 3, "phones keep at most 3 full-size images decoded");
+  assert.ok(phone.maxHorizon < desk.maxHorizon, "phones use a shorter draw distance");
+});
+
+test("Spatial perf: selectRenderWindow bounds the live cards around the focus", async () => {
+  const { selectRenderWindow } = await import("../site/spatial.js");
+  const w = selectRenderWindow(500, 250, 18);
+  assert.equal(w.end - w.start + 1, 18);
+  assert.ok(w.start <= 250 && w.end >= 250);
+  const head = selectRenderWindow(500, 0, 18);
+  assert.equal(head.start, 0);
+  assert.equal(head.end - head.start + 1, 18);
+  const tail = selectRenderWindow(500, 499, 18);
+  assert.equal(tail.end, 499);
+  assert.equal(tail.end - tail.start + 1, 18);
+  const small = selectRenderWindow(5, 2, 18);
+  assert.deepEqual(small, { start: 0, end: 4 });
+});
+
+test("Spatial perf: quantizeFilter steps blur/grayscale to avoid per-frame re-rasterisation", async () => {
+  const { quantizeFilter } = await import("../site/spatial.js");
+  assert.equal(quantizeFilter({ blur: 3.37, grayscale: 42 }, true), "blur(3.5px) grayscale(40%)");
+  assert.equal(quantizeFilter({ blur: 3.4, grayscale: 43 }, true), "blur(3.5px) grayscale(45%)");
+  assert.equal(quantizeFilter({ blur: 9, grayscale: 90 }, false), "none");
+});
+
+test("Spatial perf: render loop culls, demotes full-size images and skips unchanged style writes", () => {
+  const spatialJs = fs.readFileSync(new URL("../site/spatial.js", import.meta.url), "utf8");
+  assert.ok(spatialJs.includes("selectRenderWindow("), "tick must cull cards outside the render window");
+  assert.ok(spatialJs.includes("getPerformanceProfile("), "tick must use the performance profile");
+  assert.ok(spatialJs.includes("item.lastTransform"), "tick must skip unchanged transform writes");
+  assert.ok(spatialJs.includes("coord.thumb"), "images must demote back to thumbnails");
+});
+
 
 
 
